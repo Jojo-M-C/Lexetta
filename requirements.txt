@@ -1,0 +1,27 @@
+# FastAPI: web framework providing the routing, request validation,
+# dependency injection, and automatic OpenAPI/Swagger documentation.
+fastapi
+
+# Uvicorn: ASGI server that actually runs the FastAPI app on a port.
+# The [standard] extra adds httptools, websockets, and watchfiles for
+# better performance and the --reload feature during development.
+uvicorn[standard]
+
+# SQLAlchemy: ORM for defining database tables as Python classes,
+# managing connections and sessions, and abstracting over SQL dialects.
+sqlalchemy
+
+# psycopg (v3): the low-level driver SQLAlchemy uses to talk to
+# Postgres. The [binary] extra ships a precompiled version so the
+# Postgres development headers aren't required on the host machine.
+psycopg[binary]
+
+# Alembic: schema migration tool that generates and applies versioned
+# scripts as the data model evolves. Avoids the drop-and-recreate
+# cycle of Base.metadata.create_all and preserves data across changes.
+alembic
+
+# pydantic-settings: typed loader for environment variables and .env
+# files. Provides validation and type coercion for application config
+# (e.g. DATABASE_URL) via a Pydantic model.
+pydantic-settings
