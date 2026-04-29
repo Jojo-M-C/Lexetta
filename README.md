@@ -33,7 +33,6 @@ alembic upgrade head
 ```bash
 cd frontend
 npm install
-cd ..
 ```
 
 ## Running the app
