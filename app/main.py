@@ -4,14 +4,13 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import User
+from app.models import User, Document, Page, Paragraph
 
 import os
 import uuid
 from pathlib import Path
 
 from app.config import settings
-from app.models import Document, Page, Paragraph
 from app.parsers.plain_text import parse_txt
 app = FastAPI(title="Lexetta")
 
@@ -142,3 +141,45 @@ def list_documents(
         }
         for d in docs
     ]
+
+@app.get("/documents/{document_id}/pages/{page_number}")
+def get_page(
+    document_id: int,
+    page_number: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.get(Document, document_id)
+    if not document or document.user_id != current_user.id:
+        raise HTTPException(404, "Document not found")
+
+    page = (
+        db.query(Page)
+        .filter(Page.document_id == document_id, Page.page_number == page_number)
+        .first()
+    )
+    if not page:
+        raise HTTPException(404, "Page not found")
+
+    paragraphs = (
+        db.query(Paragraph)
+        .filter(Paragraph.page_id == page.id)
+        .order_by(Paragraph.paragraph_index)
+        .all()
+    )
+
+    total_pages = (
+        db.query(Page).filter(Page.document_id == document_id).count()
+    )
+
+    document.last_page_read = page_number
+    db.commit()
+
+    return {
+        "document_id": document_id,
+        "title": document.title,
+        "page_number": page_number,
+        "total_pages": total_pages,
+        "paragraphs": [{"id": p.id, "text": p.text} for p in paragraphs],
+    }
+

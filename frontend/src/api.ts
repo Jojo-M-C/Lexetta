@@ -65,6 +65,14 @@ export interface Document {
   last_page_read: number;
 }
 
+export interface Page {
+  document_id: number;
+  title: string;
+  page_number: number;
+  total_pages: number;
+  paragraphs: { id: number; text: string }[];
+}
+
 export const api = {
   listUsers: () => request<User[]>("/users"),
   me: () => request<User>("/me"),
@@ -74,4 +82,6 @@ export const api = {
       "/documents",
       file
     ),
+  getPage: (documentId: number, pageNumber: number) =>
+  request<Page>(`/documents/${documentId}/pages/${pageNumber}`),
 };

@@ -5,6 +5,7 @@ import Library from "./pages/Library";
 import Login from "./pages/Login";
 import Profile from "./pages/Profile";
 import Vocabulary from "./pages/Vocabulary";
+import Reader from "./pages/Reader";
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
@@ -29,6 +30,14 @@ export default function App() {
           <Route path="/vocabulary" element={<Vocabulary />} />
           <Route path="/profile" element={<Profile />} />
         </Route>
+          <Route
+            path="/reader/:documentId"
+            element={
+              <ProtectedRoute>
+                <Reader />
+              </ProtectedRoute>
+            }
+          />
 
         <Route path="*" element={<Navigate to="/library" replace />} />
       </Routes>
