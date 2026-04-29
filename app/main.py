@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -6,6 +6,13 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
 
+import os
+import uuid
+from pathlib import Path
+
+from app.config import settings
+from app.models import Document, Page, Paragraph
+from app.parsers.plain_text import parse_txt
 app = FastAPI(title="Lexetta")
 
 app.add_middleware(
@@ -41,3 +48,97 @@ def list_users(db: Session = Depends(get_db)):
 @app.get("/me")
 def me(current_user: User = Depends(get_current_user)):
     return current_user
+
+@app.post("/documents")
+async def upload_document(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Validate format
+    if not file.filename:
+        raise HTTPException(400, "No filename")
+
+    ext = file.filename.rsplit(".", 1)[-1].lower()
+    if ext != "txt":
+        raise HTTPException(400, f"Unsupported format: .{ext} (only .txt for now)")
+
+    # Read file
+    raw = await file.read()
+    if len(raw) > 5 * 1024 * 1024:  # 5 MB cap for txt
+        raise HTTPException(400, "File too large (max 5 MB)")
+
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(400, "File is not valid UTF-8 text")
+
+    # Parse
+    pages_data = parse_txt(text)
+    if not pages_data:
+        raise HTTPException(400, "File appears to be empty")
+
+    # Save original to disk
+    upload_dir = Path(settings.upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    stored_filename = f"{uuid.uuid4()}.{ext}"
+    file_path = upload_dir / stored_filename
+    file_path.write_bytes(raw)
+
+    # Title = filename without extension
+    title = file.filename.rsplit(".", 1)[0]
+
+    # Create database rows
+    document = Document(
+        user_id=current_user.id,
+        title=title,
+        source_format=ext,
+        original_filename=file.filename,
+        file_path=str(file_path),
+    )
+    db.add(document)
+    db.flush()  # assigns document.id without committing
+
+    for page_idx, paragraphs in enumerate(pages_data, start=1):
+        page = Page(document_id=document.id, page_number=page_idx)
+        db.add(page)
+        db.flush()
+
+        for para_idx, text in enumerate(paragraphs):
+            db.add(Paragraph(
+                page_id=page.id,
+                paragraph_index=para_idx,
+                text=text,
+            ))
+
+    db.commit()
+    db.refresh(document)
+
+    return {
+        "id": document.id,
+        "title": document.title,
+        "page_count": len(pages_data),
+    }
+
+
+@app.get("/documents")
+def list_documents(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    docs = (
+        db.query(Document)
+        .filter(Document.user_id == current_user.id)
+        .order_by(Document.uploaded_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": d.id,
+            "title": d.title,
+            "source_format": d.source_format,
+            "uploaded_at": d.uploaded_at,
+            "last_page_read": d.last_page_read,
+        }
+        for d in docs
+    ]

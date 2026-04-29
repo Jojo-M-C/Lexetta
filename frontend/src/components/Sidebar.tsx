@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { BookOpen, BookMarked, Settings, User, Upload } from "lucide-react";
+import { BookOpen, BookMarked, User, Upload } from "lucide-react";
 
 const navItems = [
   { to: "/library", label: "Library", icon: BookOpen },
