@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, type Document } from "../api";
 import UploadButton from "../components/UploadButton";
+import { Link } from "react-router-dom";
 
 export default function Library() {
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -40,16 +41,17 @@ export default function Library() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {documents.map((doc) => (
-            <div
+            <Link
               key={doc.id}
-              className="bg-white rounded-lg shadow p-4 hover:shadow-md transition cursor-pointer"
+              to={`/reader/${doc.id}`}
+              className="bg-white rounded-lg shadow p-4 hover:shadow-md transition cursor-pointer block"
             >
               <h3 className="font-bold text-lg">{doc.title}</h3>
               <p className="text-xs text-gray-500 mt-1">
                 {doc.source_format.toUpperCase()} ·{" "}
                 {new Date(doc.uploaded_at).toLocaleDateString()}
               </p>
-            </div>
+            </Link>
           ))}
         </div>
       )}
