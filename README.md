@@ -58,7 +58,7 @@ npm run dev
 
 Frontend serves at http://localhost:5173.
 
-Open http://localhost:5173 — you should see the login page with six test users (`learner_a1` through `learner_c2`).
+You should see the login page with six test users (`learner_a1` through `learner_c2`).
 
 ## Notes
 
