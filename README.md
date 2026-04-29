@@ -18,6 +18,13 @@ alembic revision --autogenerate -m "what changed"
 alembic upgrade head
 ```
 
+## Add test data
+
+```
+alembic revision -m "seed something"
+```
+Open the new file in alembic/versions/ and replace upgrade() and downgrade().
+
 ## Postgres
 
 ```
