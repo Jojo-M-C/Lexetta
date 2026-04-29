@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import { api, type Page } from "../api";
+import { tokenize } from "../lib/tokenize";
+import Token from "../components/Token";
 
 export default function Reader() {
   const { documentId } = useParams();
@@ -72,7 +74,11 @@ export default function Reader() {
               )}
               <div className="space-y-4 text-gray-800 leading-relaxed">
                 {page.paragraphs.map((p) => (
-                  <p key={p.id}>{p.text}</p>
+                  <p key={p.id}>
+                    {tokenize(p.text).map((tok, i) => (
+                      <Token key={i} token={tok} />
+                    ))}
+                  </p>
                 ))}
               </div>
             </>
