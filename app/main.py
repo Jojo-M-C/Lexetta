@@ -4,7 +4,8 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.models import User, Document, Page, Paragraph
+from app.models import User, Document, Page, Paragraph, LookupEvent
+from pydantic import BaseModel
 
 import os
 import uuid
@@ -183,3 +184,44 @@ def get_page(
         "paragraphs": [{"id": p.id, "text": p.text} for p in paragraphs],
     }
 
+class LookupCreate(BaseModel):
+    paragraph_id: int
+    word: str
+    was_highlighted: bool
+    mode: str = "translate"
+
+@app.post("/lookups")
+def create_lookup(
+    payload: LookupCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    paragraph = db.get(Paragraph, payload.paragraph_id)
+    if not paragraph:
+        raise HTTPException(404, "Paragraph not found")
+
+    # Verify the paragraph belongs to a document this user owns
+    page = db.get(Page, paragraph.page_id)
+    if not page:
+        raise HTTPException(404, "Page not found")
+    document = db.get(Document, page.document_id)
+    if not document or document.user_id != current_user.id:
+        raise HTTPException(404, "Document not found")
+
+    event = LookupEvent(
+        user_id=current_user.id,
+        document_id=document.id,
+        paragraph_id=paragraph.id,
+        word=payload.word,
+        context=paragraph.text,
+        was_highlighted=payload.was_highlighted,
+        mode=payload.mode,
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+
+    return {
+        "id": event.id,
+        "occurred_at": event.occurred_at,
+    }
