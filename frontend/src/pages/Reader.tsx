@@ -47,6 +47,23 @@ export default function Reader() {
   const canGoPrev = currentPage > 1;
   const canGoNext = page ? currentPage < page.total_pages : false;
 
+  const handleWordClick = async (
+  word: string,
+  paragraphId: number,
+  wasHighlighted: boolean
+) => {
+  try {
+    await api.logLookup({
+      paragraph_id: paragraphId,
+      word,
+      was_highlighted: wasHighlighted,
+    });
+    console.log("logged:", word);
+  } catch (e) {
+    console.error("lookup failed:", e);
+  }
+};
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Top bar */}
@@ -73,13 +90,18 @@ export default function Reader() {
                </h1>
               )}
               <div className="space-y-4 text-gray-800 leading-relaxed">
-                {page.paragraphs.map((p) => (
-                  <p key={p.id}>
-                    {tokenize(p.text).map((tok, i) => (
-                      <Token key={i} token={tok} />
-                    ))}
-                  </p>
-                ))}
+                  {page.paragraphs.map((p) => (
+                    <p key={p.id}>
+                      {tokenize(p.text).map((tok, i) => (
+                        <Token
+                          key={i}
+                          token={tok}
+                          paragraphId={p.id}
+                          onWordClick={handleWordClick}
+                        />
+                      ))}
+                    </p>
+                  ))}
               </div>
             </>
           )}

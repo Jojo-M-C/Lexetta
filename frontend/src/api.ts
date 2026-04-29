@@ -84,4 +84,14 @@ export const api = {
     ),
   getPage: (documentId: number, pageNumber: number) =>
   request<Page>(`/documents/${documentId}/pages/${pageNumber}`),
+  logLookup: (params: {
+  paragraph_id: number;
+  word: string;
+  was_highlighted: boolean;
+  mode?: string;
+}) =>
+  request<{ id: number; occurred_at: string }>("/lookups", {
+    method: "POST",
+    body: JSON.stringify(params),
+  }),
 };
