@@ -28,6 +28,28 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
+async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const headers: Record<string, string> = {};
+  const userId = getUserId();
+  if (userId !== null) {
+    headers["X-User-Id"] = String(userId);
+  }
+
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    throw new Error(detail.detail || `${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export interface User {
   id: number;
   username: string;
@@ -35,7 +57,21 @@ export interface User {
   use_ml_predictions: boolean;
 }
 
+export interface Document {
+  id: number;
+  title: string;
+  source_format: string;
+  uploaded_at: string;
+  last_page_read: number;
+}
+
 export const api = {
   listUsers: () => request<User[]>("/users"),
   me: () => request<User>("/me"),
+  listDocuments: () => request<Document[]>("/documents"),
+  uploadDocument: (file: File) =>
+    uploadFile<{ id: number; title: string; page_count: number }>(
+      "/documents",
+      file
+    ),
 };

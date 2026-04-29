@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { BookOpen, BookMarked, User, Upload } from "lucide-react";
+import { BookOpen, BookMarked, User } from "lucide-react";
 
 const navItems = [
   { to: "/library", label: "Library", icon: BookOpen },
@@ -15,14 +15,6 @@ export default function Sidebar() {
           <BookOpen className="text-white" size={20} />
         </div>
         <span className="text-xl font-semibold">Lexetta</span>
-      </div>
-
-      {/* Upload button */}
-      <div className="px-4 mb-4">
-        <button className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2.5 font-medium flex items-center justify-center gap-2">
-          <Upload size={16} />
-          Upload File
-        </button>
       </div>
 
       {/* Nav links */}
