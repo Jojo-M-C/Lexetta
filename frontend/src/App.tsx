@@ -1,32 +1,29 @@
-import { useEffect, useState } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
+import { AuthProvider, useAuth } from "./auth";
+import Library from "./pages/Library";
+import Login from "./pages/Login";
 
-interface User {
-  id: number;
-  username: string;
-  reading_level: string | null;
+function ProtectedRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (!user) return <Navigate to="/login" replace />;
+  return <>{children}</>;
 }
 
-function App() {
-  const [users, setUsers] = useState<User[]>([]);
-
-  useEffect(() => {
-    fetch("http://localhost:8000/users")
-      .then((res) => res.json())
-      .then(setUsers);
-  }, []);
-
+export default function App() {
   return (
-    <div className="p-8">
-      <h1 className="text-3xl font-bold mb-4 text-blue-600">Users</h1>
-      <ul className="space-y-2">
-        {users.map((u) => (
-          <li key={u.id} className="p-3 bg-gray-100 rounded">
-            {u.username} ({u.reading_level ?? "no level"})
-          </li>
-        ))}
-      </ul>
-    </div>
+    <AuthProvider>
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/library"
+          element={
+            <ProtectedRoute>
+              <Library />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="*" element={<Navigate to="/library" replace />} />
+      </Routes>
+    </AuthProvider>
   );
 }
-
-export default App;
