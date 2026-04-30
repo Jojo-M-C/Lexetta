@@ -2,6 +2,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from app.lib.difficulty import difficult_words
 
 from app.database import get_db
 from app.models import User, Document, Page, Paragraph, LookupEvent
@@ -225,3 +226,15 @@ def create_lookup(
         "id": event.id,
         "occurred_at": event.occurred_at,
     }
+
+class DifficultyRequest(BaseModel):
+    words: list[str]
+
+@app.post("/difficulty")
+def get_difficulty(
+    payload: DifficultyRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    difficult = difficult_words(payload.words, current_user, db)
+    return {"difficult": sorted(difficult)}

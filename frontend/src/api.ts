@@ -94,4 +94,9 @@ export const api = {
     method: "POST",
     body: JSON.stringify(params),
   }),
+  getDifficulty: (words: string[]) =>
+  request<{ difficult: string[] }>("/difficulty", {
+    method: "POST",
+    body: JSON.stringify({ words }),
+  }),
 };

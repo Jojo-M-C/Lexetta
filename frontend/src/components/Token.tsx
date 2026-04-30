@@ -1,18 +1,18 @@
-import { isDifficult } from "../lib/difficult-words";
 import type { Token as TokenData } from "../lib/tokenize";
 
 interface Props {
   token: TokenData;
   paragraphId: number;
+  difficultWords: Set<string>;
   onWordClick: (word: string, paragraphId: number, wasHighlighted: boolean) => void;
 }
 
-export default function Token({ token, paragraphId, onWordClick }: Props) {
+export default function Token({ token, paragraphId, difficultWords, onWordClick }: Props) {
   if (token.type === "other") {
     return <span>{token.text}</span>;
   }
 
-  const difficult = isDifficult(token.text);
+  const difficult = difficultWords.has(token.text.toLowerCase());
 
   const handleClick = () => {
     onWordClick(token.text, paragraphId, difficult);

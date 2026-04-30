@@ -13,14 +13,28 @@ export default function Reader() {
   const [currentPage, setCurrentPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [difficultWords, setDifficultWords] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!documentId) return;
     setLoading(true);
     setError(null);
+
     api
       .getPage(Number(documentId), currentPage)
-      .then(setPage)
+      .then(async (pageData) => {
+        setPage(pageData);
+
+        const allWords = new Set<string>();
+        for (const para of pageData.paragraphs) {
+          for (const tok of tokenize(para.text)) {
+            if (tok.type === "word") allWords.add(tok.text);
+          }
+        }
+
+        const { difficult } = await api.getDifficulty([...allWords]);
+        setDifficultWords(new Set(difficult.map((w) => w.toLowerCase())));
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, [documentId, currentPage]);
@@ -34,7 +48,6 @@ export default function Reader() {
     setCurrentPage((p) => Math.min(page.total_pages, p + 1));
   }, [page]);
 
-  // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "ArrowLeft") goToPrev();
@@ -48,21 +61,21 @@ export default function Reader() {
   const canGoNext = page ? currentPage < page.total_pages : false;
 
   const handleWordClick = async (
-  word: string,
-  paragraphId: number,
-  wasHighlighted: boolean
-) => {
-  try {
-    await api.logLookup({
-      paragraph_id: paragraphId,
-      word,
-      was_highlighted: wasHighlighted,
-    });
-    console.log("logged:", word);
-  } catch (e) {
-    console.error("lookup failed:", e);
-  }
-};
+    word: string,
+    paragraphId: number,
+    wasHighlighted: boolean
+  ) => {
+    try {
+      await api.logLookup({
+        paragraph_id: paragraphId,
+        word,
+        was_highlighted: wasHighlighted,
+      });
+      console.log("logged:", word);
+    } catch (e) {
+      console.error("lookup failed:", e);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -87,21 +100,22 @@ export default function Reader() {
               {page.page_number === 1 && (
                 <h1 className="text-4xl font-serif font-bold mb-8">
                   {page.title}
-               </h1>
+                </h1>
               )}
               <div className="space-y-4 text-gray-800 leading-relaxed">
-                  {page.paragraphs.map((p) => (
-                    <p key={p.id}>
-                      {tokenize(p.text).map((tok, i) => (
-                        <Token
-                          key={i}
-                          token={tok}
-                          paragraphId={p.id}
-                          onWordClick={handleWordClick}
-                        />
-                      ))}
-                    </p>
-                  ))}
+                {page.paragraphs.map((p) => (
+                  <p key={p.id}>
+                    {tokenize(p.text).map((tok, i) => (
+                      <Token
+                        key={i}
+                        token={tok}
+                        paragraphId={p.id}
+                        difficultWords={difficultWords}
+                        onWordClick={handleWordClick}
+                      />
+                    ))}
+                  </p>
+                ))}
               </div>
             </>
           )}
