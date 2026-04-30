@@ -1,3 +1,13 @@
+# TODOs
+
+- add standard word lists in backend
+- connect DeepL API for translations
+- view vocabulary list
+- delete document
+- support md and pdf files
+- implement zoom for reading viewer
+- enable ML in settings
+
 # Simois Setup Helper
 
 ## Stack

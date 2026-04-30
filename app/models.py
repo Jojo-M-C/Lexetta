@@ -68,3 +68,8 @@ class LookupEvent(Base):
 
     occurred_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
+class WordCefrLevel(Base):
+    __tablename__ = "word_cefr_levels"
+
+    word: Mapped[str] = mapped_column(String(128), primary_key=True)
+    cefr_level: Mapped[str] = mapped_column(String(2))

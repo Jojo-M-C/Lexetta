@@ -25,3 +25,7 @@ alembic
 # files. Provides validation and type coercion for application config
 # (e.g. DATABASE_URL) via a Pydantic model.
 pydantic-settings
+
+# spaCy: NLP library used for lemmatization (mapping word forms
+# like "exploring" → "explore" so they match wordlist entries).
+spacy
