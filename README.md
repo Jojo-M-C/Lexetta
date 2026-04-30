@@ -1,6 +1,5 @@
 # TODOs
 
-- add standard word lists in backend
 - connect DeepL API for translations
 - view vocabulary list
 - delete document

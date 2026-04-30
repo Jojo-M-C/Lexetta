@@ -10,7 +10,7 @@ def difficult_words(words: list[str], user: User, db: Session) -> set[str]:
     Given a list of words and a user, return the set of words that are
     difficult for that user (lowercased surface forms).
 
-    A word is difficult if its CEFR level is strictly higher than the user's
+    A word is difficult if its CEFR level is at or above the user's
     reading level. Words not in the dataset are treated as easy by default.
     Users without a reading level get an empty result (nothing highlighted).
     """
