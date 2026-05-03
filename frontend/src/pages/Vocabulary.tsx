@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, type VocabularyCard } from "../api";
+import { Download } from "lucide-react";
 
 export default function Vocabulary() {
   const [cards, setCards] = useState<VocabularyCard[]>([]);
@@ -23,11 +24,23 @@ export default function Vocabulary() {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <div className="flex justify-between items-baseline mb-8">
-        <h1 className="text-3xl font-bold">Vocabulary</h1>
-        <span className="text-sm text-gray-500">
-          {cards.length} {cards.length === 1 ? "card" : "cards"}
-        </span>
+      <div className="flex justify-between items-center mb-8">
+        <div className="flex items-baseline gap-4">
+          <h1 className="text-3xl font-bold">Vocabulary</h1>
+          <span className="text-sm text-gray-500">
+            {cards.length} {cards.length === 1 ? "card" : "cards"}
+          </span>
+        </div>
+            <div className="w-48">
+              <button
+                onClick={() => api.exportVocabulary()}
+                disabled={cards.length === 0}
+                className="w-full bg-blue-600 hover:bg-blue-700 text-white rounded-lg py-2.5 font-medium flex items-center justify-center gap-2 disabled:bg-gray-300 disabled:cursor-not-allowed"
+              >
+                <Download size={16} />
+                Export to Anki
+              </button>
+            </div>
       </div>
 
       <input
