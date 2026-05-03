@@ -256,6 +256,28 @@ def create_lookup(
         ),
     }
 
+@app.get("/vocabulary")
+def list_vocabulary(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    entries = (
+        db.query(VocabularyEntry)
+        .filter(VocabularyEntry.user_id == current_user.id)
+        .order_by(VocabularyEntry.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": e.id,
+            "word": e.word,
+            "context": e.context,
+            "translation": e.translation,
+            "created_at": e.created_at,
+        }
+        for e in entries
+    ]
+
 class DifficultyRequest(BaseModel):
     words: list[str]
 @app.post("/difficulty")

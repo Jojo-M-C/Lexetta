@@ -72,6 +72,14 @@ export interface TranslationResult {
   source: string | null;
 }
 
+export interface VocabularyCard {
+  id: number;
+  word: string;
+  context: string;
+  translation: string | null;
+  created_at: string;
+}
+
 export const api = {
   listUsers: () => request<User[]>("/users"),
   me: () => request<User>("/me"),
@@ -103,4 +111,5 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ words }),
     }),
+  listVocabulary: () => request<VocabularyCard[]>("/vocabulary"),
 };
