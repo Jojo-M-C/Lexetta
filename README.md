@@ -1,7 +1,8 @@
 # TODOs
 
-- delete document
+- duplicate detection for vocabulary
 - support md and pdf files
+- find better data for complexity of words
 - enable ML in settings
 
 # Simois Setup Helper
