@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.lib.difficulty import difficult_words
 
 from app.database import get_db
-from app.models import User, Document, Page, Paragraph, LookupEvent
+from app.models import User, Document, Page, Paragraph, LookupEvent, VocabularyEntry
 from pydantic import BaseModel
 
 import uuid
@@ -15,6 +15,7 @@ from app.config import settings
 from app.parsers.plain_text import parse_txt
 
 from app.lib.translators.factory import get_translator
+from app.lib.sentences import find_sentence
 app = FastAPI(title="Lexetta")
 
 app.add_middleware(
@@ -209,7 +210,19 @@ def create_lookup(
     if not document or document.user_id != current_user.id:
         raise HTTPException(404, "Document not found")
 
-    # Log the lookup event (research data)
+        # Find the specific sentence containing the clicked word
+    sentence = find_sentence(paragraph.text, payload.word)
+
+    # Translate using the sentence as context
+    translator = get_translator()
+    translation_text: str | None = None
+    try:
+        result = translator.translate(payload.word, context=sentence)
+        if result:
+            translation_text = result.target
+    except Exception as e:
+        print(f"Translator error: {e}")
+    # Log the lookup event (research data — never deleted by users)
     event = LookupEvent(
         user_id=current_user.id,
         document_id=document.id,
@@ -220,24 +233,27 @@ def create_lookup(
         mode=payload.mode,
     )
     db.add(event)
+
+    # Add a vocabulary card (user-facing)
+    vocab = VocabularyEntry(
+        user_id=current_user.id,
+        word=payload.word,
+        context=sentence,
+        translation=translation_text,
+    )
+    db.add(vocab)
+
     db.commit()
     db.refresh(event)
-
-    # Translate using context
-    translator = get_translator()
-    translation = None
-    try:
-        result = translator.translate(payload.word, context=paragraph.text)
-        if result:
-            translation = {"target": result.target, "source": result.source}
-    except Exception as e:
-        print(f"Translator error: {e}")
 
     return {
         "id": event.id,
         "occurred_at": event.occurred_at,
         "word": payload.word,
-        "translation": translation,
+        "translation": (
+            {"target": translation_text, "source": payload.word}
+            if translation_text else None
+        ),
     }
 
 class DifficultyRequest(BaseModel):

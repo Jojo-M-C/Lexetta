@@ -73,3 +73,16 @@ class WordCefrLevel(Base):
 
     word: Mapped[str] = mapped_column(String(128), primary_key=True)
     cefr_level: Mapped[str] = mapped_column(String(2))
+
+class VocabularyEntry(Base):
+    __tablename__ = "vocabulary_entries"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    word: Mapped[str] = mapped_column(String(128))
+    context: Mapped[str] = mapped_column(Text)
+    translation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
