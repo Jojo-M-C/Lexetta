@@ -14,12 +14,7 @@ from pathlib import Path
 from app.config import settings
 from app.parsers.plain_text import parse_txt
 
-import hashlib
-from datetime import datetime
-from sqlalchemy import select
 from app.lib.translators.factory import get_translator
-from app.lib.translator import Translation
-from app.models import TranslationCache
 app = FastAPI(title="Lexetta")
 
 app.add_middleware(
@@ -207,7 +202,6 @@ def create_lookup(
     if not paragraph:
         raise HTTPException(404, "Paragraph not found")
 
-    # Verify the paragraph belongs to a document this user owns
     page = db.get(Page, paragraph.page_id)
     if not page:
         raise HTTPException(404, "Page not found")
@@ -215,6 +209,7 @@ def create_lookup(
     if not document or document.user_id != current_user.id:
         raise HTTPException(404, "Document not found")
 
+    # Log the lookup event (research data)
     event = LookupEvent(
         user_id=current_user.id,
         document_id=document.id,
@@ -225,82 +220,28 @@ def create_lookup(
         mode=payload.mode,
     )
     db.add(event)
-
-    translations = _get_translations(payload.word, db)
-
     db.commit()
     db.refresh(event)
+
+    # Translate using context
+    translator = get_translator()
+    translation = None
+    try:
+        result = translator.translate(payload.word, context=paragraph.text)
+        if result:
+            translation = {"target": result.target, "source": result.source}
+    except Exception as e:
+        print(f"Translator error: {e}")
 
     return {
         "id": event.id,
         "occurred_at": event.occurred_at,
         "word": payload.word,
-        "translations": [
-            {
-                "target": t["target"] if isinstance(t, dict) else t.target,
-                "source": t["source"] if isinstance(t, dict) else t.source,
-                "pos": t["pos"] if isinstance(t, dict) else t.pos,
-                "sense_header": t["sense_header"] if isinstance(t, dict) else t.sense_header,
-            }
-            for t in translations
-        ],
+        "translation": translation,
     }
-
-def _get_translations(word: str, db: Session) -> list:
-    """Returns translations for a word, hitting the cache when possible."""
-    translator = get_translator()
-    source_lang = "en"
-    target_lang = "de"
-    word_normalized = word.lower()
-
-    # Try cache
-    stmt = select(TranslationCache).where(
-        TranslationCache.source_text == word_normalized,
-        TranslationCache.context_hash.is_(None),
-        TranslationCache.source_lang == source_lang,
-        TranslationCache.target_lang == target_lang,
-        TranslationCache.provider == translator.name,
-    )
-    cached = db.execute(stmt).scalar_one_or_none()
-
-    if cached:
-        cached.hit_count += 1
-        cached.last_used_at = datetime.utcnow()
-        return cached.translations
-
-    # Cache miss — call translator
-    try:
-        results = translator.translate(word_normalized, source_lang, target_lang)
-    except Exception as e:
-        print(f"Translator error: {e}")
-        return []
-
-    # Store result in cache
-    serialized = [
-        {
-            "target": t.target,
-            "source": t.source,
-            "pos": t.pos,
-            "sense_header": t.sense_header,
-        }
-        for t in results
-    ]
-
-    entry = TranslationCache(
-        source_text=word_normalized,
-        context_hash=None,
-        source_lang=source_lang,
-        target_lang=target_lang,
-        provider=translator.name,
-        translations=serialized,
-    )
-    db.add(entry)
-
-    return serialized
 
 class DifficultyRequest(BaseModel):
     words: list[str]
-
 @app.post("/difficulty")
 def get_difficulty(
     payload: DifficultyRequest,

@@ -4,27 +4,26 @@ from dataclasses import dataclass
 
 @dataclass
 class Translation:
-    target: str  # German translation, e.g. "erkunden"
-    source: str | None = None  # PONS sometimes returns "to explore" for "explore"
-    pos: str | None = None  # part of speech: "verb", "noun", etc.
-    sense_header: str | None = None  # PONS's "header" describing the sense
+    target: str  # the German translation
+    source: str | None = None  # optional — original word as the model interpreted it
 
 
 class Translator(ABC):
     """Abstract interface for translation backends.
 
-    Implementations: StubTranslator (dev), PONSTranslator (real).
-    Future: DeepLTranslator, LocalModelTranslator, etc.
+    A translator returns a single best translation for a word in context,
+    or None if no translation is available.
     """
 
-    name: str  # Provider identifier stored in the cache (e.g., "pons", "stub")
+    name: str
 
     @abstractmethod
     def translate(
             self,
             word: str,
+            context: str,
             source_lang: str = "en",
             target_lang: str = "de",
-    ) -> list[Translation]:
-        """Return a list of translations. Empty list if no results."""
+    ) -> Translation | None:
+        """Return one translation for the word in its context, or None."""
         ...

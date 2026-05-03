@@ -29,3 +29,6 @@ pydantic-settings
 # spaCy: NLP library used for lemmatization (mapping word forms
 # like "exploring" → "explore" so they match wordlist entries).
 spacy
+
+# openai: official OpenAI SDK for calling GPT models
+openai
