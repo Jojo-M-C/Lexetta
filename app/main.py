@@ -16,6 +16,12 @@ from app.parsers.plain_text import parse_txt
 
 from app.lib.translators.factory import get_translator
 from app.lib.sentences import find_sentence
+
+import csv
+import io
+from datetime import date
+
+from fastapi.responses import StreamingResponse
 app = FastAPI(title="Lexetta")
 
 app.add_middleware(
@@ -288,3 +294,38 @@ def get_difficulty(
 ):
     difficult = difficult_words(payload.words, current_user, db)
     return {"difficult": sorted(difficult)}
+@app.get("/vocabulary/export")
+def export_vocabulary(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    entries = (
+        db.query(VocabularyEntry)
+        .filter(
+            VocabularyEntry.user_id == current_user.id,
+            VocabularyEntry.translation.is_not(None),
+        )
+        .order_by(VocabularyEntry.created_at.desc())
+        .all()
+    )
+
+    output = io.StringIO()
+    # Tab-separated, no header (Anki imports raw rows by default)
+    writer = csv.writer(output, delimiter="\t", quoting=csv.QUOTE_MINIMAL)
+
+    for entry in entries:
+        front = f'{entry.word}\n"{entry.context}"'
+        back = entry.translation
+        writer.writerow([front, back])
+
+    output.seek(0)
+    today = date.today().isoformat()
+    filename = f"lexetta_vocab_{today}.tsv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/tab-separated-values",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        },
+    )
