@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, type Document } from "../api";
 import UploadButton from "../components/UploadButton";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { Link } from "react-router-dom";
 import { Trash2 } from "lucide-react";
 
 export default function Library() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
+  const [docToDelete, setDocToDelete] = useState<Document | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -22,19 +24,19 @@ export default function Library() {
     refresh();
   }, []);
 
-  const handleDelete = async (
-    e: React.MouseEvent,
-    doc: Document
-  ) => {
+  const requestDelete = (e: React.MouseEvent, doc: Document) => {
     e.preventDefault();
     e.stopPropagation();
-    const ok = window.confirm(
-      `Delete "${doc.title}"? This cannot be undone.`
-    );
-    if (!ok) return;
+    setDocToDelete(doc);
+  };
+
+  const confirmDelete = async () => {
+    if (!docToDelete) return;
+    const id = docToDelete.id;
+    setDocToDelete(null);
     try {
-      await api.deleteDocument(doc.id);
-      setDocuments((docs) => docs.filter((d) => d.id !== doc.id));
+      await api.deleteDocument(id);
+      setDocuments((docs) => docs.filter((d) => d.id !== id));
     } catch (err) {
       alert(`Delete failed: ${err instanceof Error ? err.message : err}`);
     }
@@ -72,7 +74,7 @@ export default function Library() {
                 </p>
               </Link>
               <button
-                onClick={(e) => handleDelete(e, doc)}
+                onClick={(e) => requestDelete(e, doc)}
                 className="absolute top-2 right-2 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md opacity-0 group-hover:opacity-100 transition"
                 aria-label={`Delete ${doc.title}`}
                 title="Delete document"
@@ -83,6 +85,20 @@ export default function Library() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={docToDelete !== null}
+        title="Delete document?"
+        message={
+          docToDelete
+            ? `"${docToDelete.title}" will be permanently deleted. This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={confirmDelete}
+        onCancel={() => setDocToDelete(null)}
+      />
     </div>
   );
 }
