@@ -15,16 +15,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
-
   const userId = getUserId();
   if (userId !== null) {
     headers["X-User-Id"] = String(userId);
   }
-
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
-  if (!res.ok) {
-    throw new Error(`${res.status} ${res.statusText}`);
-  }
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
 }
 
@@ -34,10 +30,8 @@ async function uploadFile<T>(path: string, file: File): Promise<T> {
   if (userId !== null) {
     headers["X-User-Id"] = String(userId);
   }
-
   const formData = new FormData();
   formData.append("file", file);
-
   const res = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers,
@@ -73,6 +67,11 @@ export interface Page {
   paragraphs: { id: number; text: string }[];
 }
 
+export interface TranslationResult {
+  target: string;
+  source: string | null;
+}
+
 export const api = {
   listUsers: () => request<User[]>("/users"),
   me: () => request<User>("/me"),
@@ -83,20 +82,25 @@ export const api = {
       file
     ),
   getPage: (documentId: number, pageNumber: number) =>
-  request<Page>(`/documents/${documentId}/pages/${pageNumber}`),
+    request<Page>(`/documents/${documentId}/pages/${pageNumber}`),
   logLookup: (params: {
-  paragraph_id: number;
-  word: string;
-  was_highlighted: boolean;
-  mode?: string;
-}) =>
-  request<{ id: number; occurred_at: string }>("/lookups", {
-    method: "POST",
-    body: JSON.stringify(params),
-  }),
+    paragraph_id: number;
+    word: string;
+    was_highlighted: boolean;
+    mode?: string;
+  }) =>
+    request<{
+      id: number;
+      occurred_at: string;
+      word: string;
+      translation: TranslationResult | null;
+    }>("/lookups", {
+      method: "POST",
+      body: JSON.stringify(params),
+    }),
   getDifficulty: (words: string[]) =>
-  request<{ difficult: string[] }>("/difficulty", {
-    method: "POST",
-    body: JSON.stringify({ words }),
-  }),
+    request<{ difficult: string[] }>("/difficulty", {
+      method: "POST",
+      body: JSON.stringify({ words }),
+    }),
 };

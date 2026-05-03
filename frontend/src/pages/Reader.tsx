@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import { api, type Page } from "../api";
 import { tokenize } from "../lib/tokenize";
 import Token from "../components/Token";
+import WordTooltip from "../components/WordTooltip";
 
 export default function Reader() {
   const { documentId } = useParams();
@@ -14,6 +15,10 @@ export default function Reader() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [difficultWords, setDifficultWords] = useState<Set<string>>(new Set());
+
+  const [activeAnchor, setActiveAnchor] = useState<HTMLElement | null>(null);
+  const [activeTranslation, setActiveTranslation] = useState<string | null>(null);
+  const [translationLoading, setTranslationLoading] = useState(false);
 
   useEffect(() => {
     if (!documentId) return;
@@ -48,10 +53,17 @@ export default function Reader() {
     setCurrentPage((p) => Math.min(page.total_pages, p + 1));
   }, [page]);
 
+  const closeTooltip = () => {
+    setActiveAnchor(null);
+    setActiveTranslation(null);
+    setTranslationLoading(false);
+  };
+
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === "ArrowLeft") goToPrev();
       if (e.key === "ArrowRight") goToNext();
+      if (e.key === "Escape") closeTooltip();
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
@@ -63,23 +75,29 @@ export default function Reader() {
   const handleWordClick = async (
     word: string,
     paragraphId: number,
-    wasHighlighted: boolean
+    wasHighlighted: boolean,
+    anchor: HTMLElement
   ) => {
+    setActiveAnchor(anchor);
+    setActiveTranslation(null);
+    setTranslationLoading(true);
+
     try {
-      await api.logLookup({
+      const result = await api.logLookup({
         paragraph_id: paragraphId,
         word,
         was_highlighted: wasHighlighted,
       });
-      console.log("logged:", word);
+      setActiveTranslation(result.translation?.target ?? null);
     } catch (e) {
       console.error("lookup failed:", e);
+    } finally {
+      setTranslationLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Top bar */}
       <div className="p-4">
         <button
           onClick={() => navigate("/library")}
@@ -90,7 +108,6 @@ export default function Reader() {
         </button>
       </div>
 
-      {/* Content card */}
       <div className="flex-1 flex justify-center px-4">
         <article className="bg-white rounded-2xl shadow-sm w-full max-w-3xl p-12 mb-32">
           {loading && <p className="text-gray-500">Loading...</p>}
@@ -122,7 +139,6 @@ export default function Reader() {
         </article>
       </div>
 
-      {/* Bottom navigation bar */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white shadow-lg rounded-2xl px-6 py-3 flex items-center gap-6">
         <div className="text-xs text-gray-500 uppercase tracking-wide">
           <p className="text-center">Progress</p>
@@ -147,6 +163,15 @@ export default function Reader() {
           </button>
         </div>
       </div>
+
+      {activeAnchor && (
+        <WordTooltip
+          translation={activeTranslation}
+          loading={translationLoading}
+          anchor={activeAnchor}
+          onClose={closeTooltip}
+        />
+      )}
     </div>
   );
 }

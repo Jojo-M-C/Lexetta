@@ -4,7 +4,12 @@ interface Props {
   token: TokenData;
   paragraphId: number;
   difficultWords: Set<string>;
-  onWordClick: (word: string, paragraphId: number, wasHighlighted: boolean) => void;
+  onWordClick: (
+    word: string,
+    paragraphId: number,
+    wasHighlighted: boolean,
+    anchor: HTMLElement
+  ) => void;
 }
 
 export default function Token({ token, paragraphId, difficultWords, onWordClick }: Props) {
@@ -14,8 +19,8 @@ export default function Token({ token, paragraphId, difficultWords, onWordClick 
 
   const difficult = difficultWords.has(token.text.toLowerCase());
 
-  const handleClick = () => {
-    onWordClick(token.text, paragraphId, difficult);
+  const handleClick = (e: React.MouseEvent<HTMLSpanElement>) => {
+    onWordClick(token.text, paragraphId, difficult, e.currentTarget);
   };
 
   return (
