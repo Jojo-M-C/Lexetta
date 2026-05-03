@@ -2,7 +2,6 @@
 
 - delete document
 - support md and pdf files
-- implement zoom for reading viewer
 - enable ML in settings
 
 # Simois Setup Helper

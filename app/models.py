@@ -54,8 +54,8 @@ class LookupEvent(Base):
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
-    document_id: Mapped[int] = mapped_column(
-        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True # if the user deleted the document, we can have id of null but still keep the context for training
     )
     paragraph_id: Mapped[int] = mapped_column(
         ForeignKey("paragraphs.id", ondelete="SET NULL"), nullable=True

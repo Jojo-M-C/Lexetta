@@ -113,25 +113,29 @@ export const api = {
     }),
   listVocabulary: () => request<VocabularyCard[]>("/vocabulary"),
   exportVocabulary: () => {
-  const userId = getUserId();
-  const url = `${BASE}/vocabulary/export`;
-  // Use fetch to attach the user header, then trigger a download
-  fetch(url, {
-    headers: userId !== null ? { "X-User-Id": String(userId) } : {},
-  })
-    .then((res) => {
-      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-      return res.blob();
+    const userId = getUserId();
+    const url = `${BASE}/vocabulary/export`;
+    // Use fetch to attach the user header, then trigger a download
+    fetch(url, {
+      headers: userId !== null ? { "X-User-Id": String(userId) } : {},
     })
-    .then((blob) => {
-      const downloadUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = downloadUrl;
-      a.download = `lexetta_vocab_${new Date().toISOString().slice(0, 10)}.tsv`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(downloadUrl);
-    });
-},
+      .then((res) => {
+        if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+        return res.blob();
+      })
+      .then((blob) => {
+        const downloadUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = downloadUrl;
+        a.download = `lexetta_vocab_${new Date().toISOString().slice(0, 10)}.tsv`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(downloadUrl);
+      });
+  },
+  deleteDocument: (id: number) =>
+  request<{ id: number; deleted: boolean }>(`/documents/${id}`, {
+    method: "DELETE",
+  }),
 };

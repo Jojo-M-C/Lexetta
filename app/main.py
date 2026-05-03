@@ -3,24 +3,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.lib.difficulty import difficult_words
-
 from app.database import get_db
 from app.models import User, Document, Page, Paragraph, LookupEvent, VocabularyEntry
 from pydantic import BaseModel
-
 import uuid
 from pathlib import Path
-
 from app.config import settings
 from app.parsers.plain_text import parse_txt
-
 from app.lib.translators.factory import get_translator
 from app.lib.sentences import find_sentence
-
 import csv
 import io
+import os
 from datetime import date
-
 from fastapi.responses import StreamingResponse
 app = FastAPI(title="Lexetta")
 
@@ -329,3 +324,33 @@ def export_vocabulary(
             "Content-Disposition": f'attachment; filename="{filename}"',
         },
     )
+
+@app.delete("/documents/{document_id}")
+def delete_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.get(Document, document_id)
+    if not document or document.user_id != current_user.id:
+        raise HTTPException(404, "Document not found")
+
+    # Capture file path before the row goes
+    file_path = document.file_path
+
+    # Delete the database row.
+    # Cascades: pages, paragraphs (via pages) cascade-delete.
+    # SET NULL: lookup_events.document_id and .paragraph_id become NULL,
+    # so the research data persists.
+    db.delete(document)
+    db.commit()
+
+    # Best-effort filesystem cleanup. Don't fail the request if this errors —
+    # the database state is already consistent and the file is just orphaned.
+    try:
+        if file_path and os.path.exists(file_path):
+            os.remove(file_path)
+    except OSError as e:
+        print(f"Failed to delete file {file_path}: {e}")
+
+    return {"id": document_id, "deleted": True}
