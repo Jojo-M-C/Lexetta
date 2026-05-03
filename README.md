@@ -1,6 +1,5 @@
 # TODOs
 
-- connect DeepL API for translations
 - view vocabulary list
 - delete document
 - support md and pdf files
