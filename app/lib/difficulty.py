@@ -48,5 +48,6 @@ def difficult_words(words: list[str], user: User, db: Session) -> set[str]:
     return difficult
 
 # TODO future ML integration
-def difficult_words_ml(words, user, db):
-    return
+def difficult_words_ml(words, user, db) -> set[str]:
+    print(f"{words=}, {user=  }, {db=}")
+    return set("the")  # placeholder for ML-based difficulty prediction

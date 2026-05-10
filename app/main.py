@@ -2,7 +2,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from app.lib.difficulty import difficult_words
+from app.lib.difficulty import difficult_words_ml
 from app.database import get_db
 from app.models import User, Document, Page, Paragraph, LookupEvent, VocabularyEntry
 from pydantic import BaseModel
@@ -287,7 +287,7 @@ def get_difficulty(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    difficult = difficult_words(payload.words, current_user, db)
+    difficult = difficult_words_ml(payload.words, current_user, db)
     return {"difficult": sorted(difficult)}
 @app.get("/vocabulary/export")
 def export_vocabulary(
