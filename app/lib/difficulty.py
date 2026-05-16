@@ -1,5 +1,6 @@
-from functools import lru_cache
-
+import threading
+import torch
+from lexetta_lcp.CompLexPerAnnotator.model import load_trained
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -7,6 +8,9 @@ from app.lib.lemmatize import lemmatize_many
 from app.models import User, WordCefrLevel
 
 LEVEL_ORDER = {"A1": 1, "A2": 2, "B1": 3, "B2": 4, "C1": 5, "C2": 6}
+_load_lock = threading.Lock()
+_LCP_MODEL = None # stores (model, tokenizer)
+
 
 def difficult_words(words: list[str], user: User, db: Session) -> set[str]:
     """
@@ -53,15 +57,17 @@ def difficult_words(words: list[str], user: User, db: Session) -> set[str]:
 ML_DIFFICULTY_THRESHOLD = 0.5
 
 
-@lru_cache(maxsize=1)
 def _load_lcp_model():
-    import torch
-    from lexetta_lcp.CompLexPerAnnotator.model import load_trained
+    global _LCP_MODEL
+    with _load_lock:
+        if _LCP_MODEL is not None:
+            return _LCP_MODEL
 
-    model, tokenizer = load_trained(settings.lcp_model_dir)
-    if torch.cuda.is_available():
-        model = model.to("cuda")
-    return model, tokenizer
+        model, tokenizer = load_trained(settings.lcp_model_dir)
+        if torch.cuda.is_available():
+            model = model.to("cuda")
+        _LCP_MODEL = model, tokenizer
+        return _LCP_MODEL
 
 
 def _get_user_history(user: User, db: Session) -> list[dict]:
