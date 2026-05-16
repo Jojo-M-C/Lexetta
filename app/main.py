@@ -12,6 +12,7 @@ from app.config import settings
 from app.parsers.plain_text import parse_txt
 from app.lib.translators.factory import get_translator
 from app.lib.sentences import find_sentence
+from app.lib.tokenize import word_tokenize
 import csv
 import io
 import os
@@ -280,14 +281,21 @@ def list_vocabulary(
     ]
 
 class DifficultyRequest(BaseModel):
-    words: list[str]
+    sentences: list[str]
+
 @app.post("/difficulty")
 def get_difficulty(
     payload: DifficultyRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    difficult = difficult_words_ml(payload.words, current_user, db)
+    sentences: list[str] = []
+    words: list[str] = []
+    for sentence in payload.sentences:
+        for word in word_tokenize(sentence):
+            sentences.append(sentence)
+            words.append(word)
+    difficult = difficult_words_ml(sentences, words, current_user, db)
     return {"difficult": sorted(difficult)}
 @app.get("/vocabulary/export")
 def export_vocabulary(

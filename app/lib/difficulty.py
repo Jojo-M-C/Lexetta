@@ -1,5 +1,8 @@
+from functools import lru_cache
+
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.lib.lemmatize import lemmatize_many
 from app.models import User, WordCefrLevel
 
@@ -47,7 +50,55 @@ def difficult_words(words: list[str], user: User, db: Session) -> set[str]:
 
     return difficult
 
-# TODO future ML integration
-def difficult_words_ml(words, user, db) -> set[str]:
-    print(f"{words=}, {user=  }, {db=}")
-    return set("the")  # placeholder for ML-based difficulty prediction
+ML_DIFFICULTY_THRESHOLD = 0.5
+
+
+@lru_cache(maxsize=1)
+def _load_lcp_model():
+    import torch
+    from lexetta_lcp.CompLexPerAnnotator.model import load_trained
+
+    model, tokenizer = load_trained(settings.lcp_model_dir)
+    if torch.cuda.is_available():
+        model = model.to("cuda")
+    return model, tokenizer
+
+
+def _get_user_history(user: User, db: Session) -> list[dict]:
+    # TODO: build the user's history from their lookup / vocabulary events.
+    return []
+
+
+def difficult_words_ml(
+    sentences: list[str],
+    tokens: list[str],
+    user: User,
+    db: Session,
+) -> set[str]:
+    """
+    ML-based variant of difficult_words. Predicts per-token complexity with the
+    per-annotator LCP model and returns tokens scoring at or above the threshold.
+
+    `sentences` and `tokens` must be parallel: each token is scored in the
+    context of the sentence at the same index.
+    """
+    if len(sentences) != len(tokens):
+        raise ValueError(
+            f"sentences and tokens must have the same length "
+            f"(got {len(sentences)} and {len(tokens)})"
+        )
+    if not tokens:
+        return set()
+
+    from lexetta_lcp.CompLexPerAnnotator.model import predict_batch
+
+    model, tokenizer = _load_lcp_model()
+    histories = [_get_user_history(user, db)] * len(tokens)
+
+    preds = predict_batch(model, tokenizer, sentences, tokens, histories)
+
+    return {
+        token.lower()
+        for token, score in zip(tokens, preds)
+        if score >= ML_DIFFICULTY_THRESHOLD
+    }

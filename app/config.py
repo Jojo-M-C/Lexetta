@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     database_url: str
     upload_dir: str = "./uploads"
     openai_api_key: str | None = None
+    lcp_model_dir: str
     model_config = SettingsConfigDict(env_file=".env")
 
 

@@ -30,14 +30,8 @@ export default function Reader() {
       .then(async (pageData) => {
         setPage(pageData);
 
-        const allWords = new Set<string>();
-        for (const para of pageData.paragraphs) {
-          for (const tok of tokenize(para.text)) {
-            if (tok.type === "word") allWords.add(tok.text);
-          }
-        }
-
-        const { difficult } = await api.getDifficulty([...allWords]);
+        const sentences = pageData.paragraphs.map((p) => p.text);
+        const { difficult } = await api.getDifficulty(sentences);
         setDifficultWords(new Set(difficult.map((w) => w.toLowerCase())));
       })
       .catch((e) => setError(e.message))
