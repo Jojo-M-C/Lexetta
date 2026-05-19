@@ -64,7 +64,7 @@ export default function Library() {
           {documents.map((doc) => (
             <div key={doc.id} className="relative group">
               <Link
-                to={`/reader/${doc.id}`}
+                to={`/reader/${doc.id}?page=${doc.last_page_read}`}
                 className="bg-white rounded-lg shadow p-4 hover:shadow-md transition cursor-pointer block"
               >
                 <h3 className="font-bold text-lg pr-8">{doc.title}</h3>

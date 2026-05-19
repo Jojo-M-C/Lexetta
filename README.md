@@ -1,8 +1,7 @@
 # TODOs
 
-- duplicate detection for vocabulary
+- tougher duplicate detection for vocabulary?
 - support md and pdf files
-- find better data for complexity of words
 - pick up where user left off in the document
 - implement cache for highlighted words
 - enable ML in settings
