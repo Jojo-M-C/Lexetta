@@ -37,14 +37,21 @@ def difficult_words(words: list[str], user: User, db: Session) -> set[str]:
     )
     lemma_to_level = {row.word: row.cefr_level for row in rows}
 
+    #print(f"Input words: {words}")
+    #print(f"Lemmas: {lemmas}")
+    #print(f"lemma_to_level: {lemma_to_level}")
+    #print(f"user_level: {user_level} ({user.reading_level})")
+
     difficult: set[str] = set()
     for lemma, surfaces in surface_by_lemma.items():
         level = lemma_to_level.get(lemma)
         if level is None:
-            continue  # not in dataset → treat as easy
+            #difficult.update(surfaces)
+            continue
         if LEVEL_ORDER[level] >= user_level:
             difficult.update(surfaces)
 
+    #print(f"Difficult words for {user.username}: {difficult}")
     return difficult
 
 # TODO future ML integration

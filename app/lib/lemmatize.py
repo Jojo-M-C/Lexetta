@@ -20,6 +20,9 @@ def lemmatize(word: str) -> str:
 def lemmatize_many(words: list[str]) -> list[str]:
     """Lemmatize many words at once. More efficient than calling lemmatize() in a loop."""
     nlp = _get_nlp()
-    text = " ".join(w.lower() for w in words)
-    doc = nlp(text)
-    return [t.lemma_ for t in doc]
+    # Process each word as its own document so hyphenated tokens (e.g. "one-bedroom")
+    # don't expand into multiple spaCy tokens and misalign the zip in callers.
+    return [
+        doc[0].lemma_ if len(doc) > 0 else word.lower()
+        for word, doc in zip(words, nlp.pipe(w.lower() for w in words))
+    ]
