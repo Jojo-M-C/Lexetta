@@ -4,7 +4,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.lib.difficulty import difficult_words
 from app.database import get_db
-from app.models import User, Document, Page, Paragraph, LookupEvent, VocabularyEntry
+from app.models import User, Document, Page, Paragraph, ClickedWord, VocabularyEntry
 from pydantic import BaseModel
 import uuid
 from pathlib import Path
@@ -237,8 +237,7 @@ def create_lookup(
             translation_text = result.target
     except Exception as e:
         print(f"Translator error: {e}")
-    # Log the lookup event (research data — never deleted by users)
-    event = LookupEvent(
+    event = ClickedWord(
         user_id=current_user.id,
         document_id=document.id,
         paragraph_id=paragraph.id,
@@ -363,7 +362,7 @@ def delete_document(
 
     # Delete the database row.
     # Cascades: pages, paragraphs (via pages) cascade-delete.
-    # SET NULL: lookup_events.document_id and .paragraph_id become NULL,
+    # SET NULL: clicked_words.document_id and .paragraph_id become NULL,
     # so the research data persists.
     db.delete(document)
     db.commit()

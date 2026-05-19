@@ -47,8 +47,8 @@ class Paragraph(Base):
     text: Mapped[str] = mapped_column(Text)
 
 
-class LookupEvent(Base):
-    __tablename__ = "lookup_events"
+class ClickedWord(Base):
+    __tablename__ = "clicked_words"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(

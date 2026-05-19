@@ -3,7 +3,6 @@
 - tougher duplicate detection for vocabulary?
 - support md and pdf files
 - implement cache for highlighted words
-- enable ML in settings
 - generate more labeling for C1 and C2 words
 - tabel for highlighted words, log if clicked or not, highlighted_words (words, was_clicked, context)
 - rename clicked_words
