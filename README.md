@@ -4,7 +4,7 @@
 - support md and pdf files
 - implement cache for highlighted words
 - generate more labeling for C1 and C2 words
-- tabel for highlighted words, log if clicked or not, highlighted_words (words, was_clicked, context)
+- single page edge case highlited_words
 
 # Simois Setup Helper
 
