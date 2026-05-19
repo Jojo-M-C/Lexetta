@@ -235,14 +235,23 @@ def create_lookup(
     )
     db.add(event)
 
-    # Add a vocabulary card (user-facing)
-    vocab = VocabularyEntry(
-        user_id=current_user.id,
-        word=payload.word,
-        context=sentence,
-        translation=translation_text,
+    # Add a vocabulary card (user-facing). skip if identical (word, translation) already exists
+    existing = (
+        db.query(VocabularyEntry)
+        .filter(
+            VocabularyEntry.user_id == current_user.id,
+            VocabularyEntry.word == payload.word,
+            VocabularyEntry.translation == translation_text,
+        )
+        .first()
     )
-    db.add(vocab)
+    if not existing:
+        db.add(VocabularyEntry(
+            user_id=current_user.id,
+            word=payload.word,
+            context=sentence,
+            translation=translation_text,
+        ))
 
     db.commit()
     db.refresh(event)

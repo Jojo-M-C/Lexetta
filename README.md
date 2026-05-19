@@ -7,6 +7,7 @@
 - implement cache for highlighted words
 - enable ML in settings
 - add User Language, additional languages, langauge level input
+- generate more labeling for C1 and C2 words
 
 # Simois Setup Helper
 
@@ -116,4 +117,16 @@ docker compose down -v
 docker compose up -d
 alembic upgrade head
 ```
+
+## Dataset 
+
+ docker compose exec db psql -U lexetta -d lexetta -c "SELECT cefr_level, COUNT(*) FROM word_cefr_levels GROUP BY cefr_level ORDER BY cefr_level;"
+ cefr_level | count 
+------------+-------
+ A1         |  1037
+ A2         |  1179
+ B1         |  2012
+ B2         |  2327
+ C1         |   885
+ C2         |   873
 
