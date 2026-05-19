@@ -33,15 +33,18 @@ export default function Reader() {
       .then(async (pageData) => {
         setPage(pageData);
 
-        const allWords = new Set<string>();
-        for (const para of pageData.paragraphs) {
-          for (const tok of tokenize(para.text)) {
-            if (tok.type === "word") allWords.add(tok.text);
+        if (pageData.ml_highlights !== null) {
+          setDifficultWords(new Set(pageData.ml_highlights));
+        } else {
+          const allWords = new Set<string>();
+          for (const para of pageData.paragraphs) {
+            for (const tok of tokenize(para.text)) {
+              if (tok.type === "word") allWords.add(tok.text);
+            }
           }
+          const { difficult } = await api.getDifficulty([...allWords]);
+          setDifficultWords(new Set(difficult.map((w) => w.toLowerCase())));
         }
-
-        const { difficult } = await api.getDifficulty([...allWords]);
-        setDifficultWords(new Set(difficult.map((w) => w.toLowerCase())));
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));

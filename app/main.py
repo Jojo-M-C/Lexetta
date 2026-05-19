@@ -2,10 +2,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from app.lib.difficulty import difficult_words
+from app.lib.difficulty import difficult_words, difficult_words_ml
 from app.database import get_db
-from app.models import User, Document, Page, Paragraph, ClickedWord, VocabularyEntry
+from app.models import User, Document, Page, Paragraph, ClickedWord, HighlightedWord, VocabularyEntry
 from pydantic import BaseModel
+import re
 import uuid
 from pathlib import Path
 from app.config import settings
@@ -17,6 +18,91 @@ import io
 import os
 from datetime import date
 from fastapi.responses import StreamingResponse
+
+_WORD_RE = re.compile(r"[a-zA-Z]+(?:['\-][a-zA-Z]+)*")
+
+
+def _extract_words(paragraphs: list[Paragraph]) -> list[str]:
+    seen: set[str] = set()
+    words: list[str] = []
+    for para in paragraphs:
+        for match in _WORD_RE.finditer(para.text):
+            w = match.group()
+            if w not in seen:
+                seen.add(w)
+                words.append(w)
+    return words
+
+
+def _flush_highlighted_words(
+    db: Session,
+    user: User,
+    document_id: int,
+    page_number: int,
+) -> None:
+    """Called when the user navigates away from a page. Re-runs ML on that page's
+    words and writes one highlighted_words row per prediction, linking to the
+    clicked_words row if the user clicked the word."""
+    page = (
+        db.query(Page)
+        .filter(Page.document_id == document_id, Page.page_number == page_number)
+        .first()
+    )
+    if not page:
+        return
+
+    paragraphs = (
+        db.query(Paragraph)
+        .filter(Paragraph.page_id == page.id)
+        .order_by(Paragraph.paragraph_index)
+        .all()
+    )
+    if not paragraphs:
+        return
+
+    ml_set = difficult_words_ml(_extract_words(paragraphs), user, db) or set()
+    if not ml_set:
+        return
+
+    # Map lowercase word -> id of first click on this page
+    para_ids = [p.id for p in paragraphs]
+    click_by_word: dict[str, int] = {}
+    for row in (
+        db.query(ClickedWord)
+        .filter(ClickedWord.user_id == user.id, ClickedWord.paragraph_id.in_(para_ids))
+        .all()
+    ):
+        key = row.word.lower()
+        if key not in click_by_word:
+            click_by_word[key] = row.id
+
+    # skip words already recorded for this page
+    existing = {
+        row.word for row in
+        db.query(HighlightedWord.word).filter(
+            HighlightedWord.user_id == user.id,
+            HighlightedWord.document_id == document_id,
+            HighlightedWord.page_number == page_number,
+        ).all()
+    }
+
+    for word in ml_set:
+        if word in existing:
+            continue
+        context = next(
+            (find_sentence(p.text, word) for p in paragraphs if word in p.text.lower()),
+            "",
+        )
+        click_id = click_by_word.get(word)
+        db.add(HighlightedWord(
+            user_id=user.id,
+            document_id=document_id,
+            page_number=page_number,
+            word=word,
+            context=context,
+            clicked_word_id=click_id,
+            was_clicked=click_id is not None,
+        ))
 app = FastAPI(title="Lexetta")
 
 app.add_middleware(
@@ -191,7 +277,16 @@ def get_page(
         db.query(Page).filter(Page.document_id == document_id).count()
     )
 
+    # Flush ML data for the page being left (only when actually navigating away)
+    if current_user.use_ml_predictions and document.last_page_read != page_number:
+        _flush_highlighted_words(db, current_user, document_id, document.last_page_read)
     document.last_page_read = page_number
+
+    # Compute highlights for the current page (returned to frontend, not persisted yet)
+    ml_highlights: list[str] | None = None
+    if current_user.use_ml_predictions:
+        ml_highlights = sorted(difficult_words_ml(_extract_words(paragraphs), current_user, db) or set())
+
     db.commit()
 
     return {
@@ -200,6 +295,7 @@ def get_page(
         "page_number": page_number,
         "total_pages": total_pages,
         "paragraphs": [{"id": p.id, "text": p.text} for p in paragraphs],
+        "ml_highlights": ml_highlights,
     }
 
 class LookupCreate(BaseModel):

@@ -43,6 +43,6 @@ def difficult_words(words: list[str], user: User, db: Session) -> set[str]:
 
     return difficult
 
-# TODO future ML integration
-def difficult_words_ml(words, user, db):
-    return
+# Mock ML for testing table: flags words longer than 7 characters as difficult.
+def difficult_words_ml(words: list[str], user: User, db: Session) -> set[str]:
+    return {w.lower() for w in words if len(w) > 7}

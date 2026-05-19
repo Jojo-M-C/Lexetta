@@ -65,6 +65,7 @@ export interface Page {
   page_number: number;
   total_pages: number;
   paragraphs: { id: number; text: string }[];
+  ml_highlights: string[] | null;
 }
 
 export interface TranslationResult {

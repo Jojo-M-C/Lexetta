@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, ForeignKey, Integer, Text
+from sqlalchemy import String, ForeignKey, Integer, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 from app.database import Base
@@ -73,6 +73,29 @@ class WordCefrLevel(Base):
 
     word: Mapped[str] = mapped_column(String(128), primary_key=True)
     cefr_level: Mapped[str] = mapped_column(String(2))
+
+class HighlightedWord(Base):
+    __tablename__ = "highlighted_words"
+    __table_args__ = (
+        UniqueConstraint("user_id", "document_id", "page_number", "word", name="uq_highlighted_user_doc_page_word"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    document_id: Mapped[int | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    page_number: Mapped[int] = mapped_column(Integer)
+    word: Mapped[str] = mapped_column(String(128))
+    context: Mapped[str] = mapped_column(Text)
+    clicked_word_id: Mapped[int | None] = mapped_column(
+        ForeignKey("clicked_words.id", ondelete="SET NULL"), nullable=True
+    )
+    was_clicked: Mapped[bool] = mapped_column(default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
 
 class VocabularyEntry(Base):
     __tablename__ = "vocabulary_entries"
