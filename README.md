@@ -2,11 +2,11 @@
 
 - tougher duplicate detection for vocabulary?
 - support md and pdf files
-- pick up where user left off in the document
 - implement cache for highlighted words
 - enable ML in settings
-- add User Language, additional languages, langauge level input
 - generate more labeling for C1 and C2 words
+- tabel for highlighted words, log if clicked or not, highlighted_words (words, was_clicked, context)
+- rename clicked_words
 
 # Simois Setup Helper
 

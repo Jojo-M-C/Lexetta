@@ -53,6 +53,20 @@ def list_users(db: Session = Depends(get_db)):
 def me(current_user: User = Depends(get_current_user)):
     return current_user
 
+class UserSettingsUpdate(BaseModel):
+    use_ml_predictions: bool
+
+@app.patch("/users/me")
+def update_me(
+    payload: UserSettingsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    current_user.use_ml_predictions = payload.use_ml_predictions
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
 @app.post("/documents")
 async def upload_document(
     file: UploadFile = File(...),

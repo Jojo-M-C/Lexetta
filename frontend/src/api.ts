@@ -83,6 +83,11 @@ export interface VocabularyCard {
 export const api = {
   listUsers: () => request<User[]>("/users"),
   me: () => request<User>("/me"),
+  updateMe: (settings: { use_ml_predictions: boolean }) =>
+    request<User>("/users/me", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    }),
   listDocuments: () => request<Document[]>("/documents"),
   uploadDocument: (file: File) =>
     uploadFile<{ id: number; title: string; page_count: number }>(
