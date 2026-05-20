@@ -35,8 +35,9 @@ export default function Reader() {
       .then(async (pageData) => {
         setPage(pageData);
 
+        let difficult: Set<string>;
         if (pageData.ml_highlights !== null) {
-          setDifficultWords(new Set(pageData.ml_highlights));
+          difficult = new Set(pageData.ml_highlights);
         } else {
           const allWords = new Set<string>();
           for (const para of pageData.paragraphs) {
@@ -44,9 +45,19 @@ export default function Reader() {
               if (tok.type === "word") allWords.add(tok.text);
             }
           }
-          const { difficult } = await api.getDifficulty([...allWords]);
-          setDifficultWords(new Set(difficult.map((w) => w.toLowerCase())));
+          const { difficult: diff } = await api.getDifficulty([...allWords]);
+          difficult = new Set(diff.map((w) => w.toLowerCase()));
         }
+
+        setDifficultWords(difficult);
+
+        const pairs = [...difficult].flatMap((word) => {
+          const para = pageData.paragraphs.find((p) =>
+            p.text.toLowerCase().includes(word)
+          );
+          return para ? [{ paragraph_id: para.id, word }] : [];
+        });
+        if (pairs.length > 0) api.prefetch(pairs).catch(() => {});
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));

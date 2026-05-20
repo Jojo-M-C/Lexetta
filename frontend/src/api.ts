@@ -117,6 +117,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ words }),
     }),
+  prefetch: (words: { paragraph_id: number; word: string }[]) =>
+    request<{ queued: number }>("/prefetch", {
+      method: "POST",
+      body: JSON.stringify({ words }),
+    }),
   listVocabulary: () => request<VocabularyCard[]>("/vocabulary"),
   exportVocabulary: () => {
     const userId = getUserId();

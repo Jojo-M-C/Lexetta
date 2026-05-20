@@ -1,6 +1,5 @@
 # TODOs
-- implement cache for highlighted words
-- single page edge case highlited_words
+no major todos rn
 
 # Maybe TODOs
 - tougher duplicate detection for vocabulary?
