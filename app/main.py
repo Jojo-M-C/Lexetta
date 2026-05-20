@@ -1,11 +1,12 @@
-from fastapi import Depends, FastAPI, Header, HTTPException, File, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.orm import Session
-from app.lib.difficulty import difficult_words_ml
-from app.database import get_db
-from app.models import User, Document, Page, Paragraph, LookupEvent, VocabularyEntry
+from app.lib.difficulty import difficult_words, difficult_words_ml
+from app.database import get_db, SessionLocal
+from app.models import User, Document, Page, Paragraph, ClickedWord, HighlightedWord, VocabularyEntry
 from pydantic import BaseModel
+import re
 import uuid
 from pathlib import Path
 from app.config import settings
@@ -18,6 +19,110 @@ import io
 import os
 from datetime import date
 from fastapi.responses import StreamingResponse
+
+_WORD_RE = re.compile(r"[a-zA-Z]+(?:['\-][a-zA-Z]+)*")
+
+
+def _extract_words(paragraphs: list[Paragraph]) -> list[str]:
+    seen: set[str] = set()
+    words: list[str] = []
+    for para in paragraphs:
+        for match in _WORD_RE.finditer(para.text):
+            w = match.group()
+            if w not in seen:
+                seen.add(w)
+                words.append(w)
+    return words
+
+
+def _persist_highlighted_words(
+    db: Session,
+    user: User,
+    document_id: int,
+    page_number: int,
+    words: set[str],
+    paragraphs: list[Paragraph],
+    mode: str,
+) -> None:
+    existing = {
+        row.word for row in
+        db.query(HighlightedWord.word).filter(
+            HighlightedWord.user_id == user.id,
+            HighlightedWord.document_id == document_id,
+            HighlightedWord.page_number == page_number,
+        ).all()
+    }
+
+    for word in words:
+        if word in existing:
+            continue
+        context = next(
+            (find_sentence(p.text, word) for p in paragraphs if word in p.text.lower()),
+            "",
+        )
+        db.add(HighlightedWord(
+            user_id=user.id,
+            document_id=document_id,
+            page_number=page_number,
+            word=word,
+            context=context,
+            mode=mode,
+        ))
+
+def _prefetch_translation(paragraph_id: int, word: str, user_id: int, mode: str) -> None:
+    db = SessionLocal()
+    try:
+        paragraph = db.get(Paragraph, paragraph_id)
+        if not paragraph:
+            return
+        page = db.get(Page, paragraph.page_id)
+        if not page:
+            return
+        document = db.get(Document, page.document_id)
+        if not document or document.user_id != user_id:
+            return
+
+        word_lower = word.lower()
+        highlighted = (
+            db.query(HighlightedWord)
+            .filter(
+                HighlightedWord.user_id == user_id,
+                HighlightedWord.document_id == document.id,
+                HighlightedWord.page_number == page.page_number,
+                HighlightedWord.word == word_lower,
+            )
+            .first()
+        )
+
+        if highlighted and highlighted.translation_target:
+            return
+
+        sentence = find_sentence(paragraph.text, word)
+
+        if not highlighted:
+            highlighted = HighlightedWord(
+                user_id=user_id,
+                document_id=document.id,
+                page_number=page.page_number,
+                word=word_lower,
+                context=sentence,
+                mode=mode,
+            )
+            db.add(highlighted)
+
+        try:
+            result = get_translator().translate(word, context=sentence)
+            if result:
+                highlighted.translation_target = result.target
+        except Exception as e:
+            print(f"Prefetch translation error for '{word}': {e}")
+
+        db.commit()
+    except Exception as e:
+        print(f"Prefetch task error: {e}")
+    finally:
+        db.close()
+
 app = FastAPI(title="Lexetta")
 
 app.add_middleware(
@@ -52,6 +157,20 @@ def list_users(db: Session = Depends(get_db)):
 
 @app.get("/me")
 def me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+class UserSettingsUpdate(BaseModel):
+    use_ml_predictions: bool
+
+@app.patch("/users/me")
+def update_me(
+    payload: UserSettingsUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    current_user.use_ml_predictions = payload.use_ml_predictions
+    db.commit()
+    db.refresh(current_user)
     return current_user
 
 @app.post("/documents")
@@ -179,6 +298,13 @@ def get_page(
     )
 
     document.last_page_read = page_number
+
+    ml_highlights: list[str] | None = None
+    if current_user.use_ml_predictions:
+        ml_set = difficult_words_ml(_extract_words(paragraphs), current_user, db) or set()
+        ml_highlights = sorted(ml_set)
+        _persist_highlighted_words(db, current_user, document_id, page_number, ml_set, paragraphs, mode="ml")
+
     db.commit()
 
     return {
@@ -187,13 +313,31 @@ def get_page(
         "page_number": page_number,
         "total_pages": total_pages,
         "paragraphs": [{"id": p.id, "text": p.text} for p in paragraphs],
+        "ml_highlights": ml_highlights,
     }
+
+class PrefetchItem(BaseModel):
+    paragraph_id: int
+    word: str
+
+class PrefetchRequest(BaseModel):
+    words: list[PrefetchItem]
+
+@app.post("/prefetch", status_code=202)
+def prefetch_translations(
+    payload: PrefetchRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+):
+    mode = "ml" if current_user.use_ml_predictions else "cefr"
+    for item in payload.words:
+        background_tasks.add_task(_prefetch_translation, item.paragraph_id, item.word, current_user.id, mode)
+    return {"queued": len(payload.words)}
 
 class LookupCreate(BaseModel):
     paragraph_id: int
     word: str
     was_highlighted: bool
-    mode: str = "translate"
 
 @app.post("/lookups")
 def create_lookup(
@@ -215,35 +359,71 @@ def create_lookup(
         # Find the specific sentence containing the clicked word
     sentence = find_sentence(paragraph.text, payload.word)
 
-    # Translate using the sentence as context
-    translator = get_translator()
+    cached = (
+        db.query(HighlightedWord)
+        .filter(
+            HighlightedWord.user_id == current_user.id,
+            HighlightedWord.document_id == document.id,
+            HighlightedWord.page_number == page.page_number,
+            HighlightedWord.word == payload.word.lower(),
+            HighlightedWord.translation_target.isnot(None),
+        )
+        .first()
+    )
+
     translation_text: str | None = None
-    try:
-        result = translator.translate(payload.word, context=sentence)
-        if result:
-            translation_text = result.target
-    except Exception as e:
-        print(f"Translator error: {e}")
-    # Log the lookup event (research data — never deleted by users)
-    event = LookupEvent(
+    if cached:
+        translation_text = cached.translation_target
+    else:
+        try:
+            result = get_translator().translate(payload.word, context=sentence)
+            if result:
+                translation_text = result.target
+        except Exception as e:
+            print(f"Translator error: {e}")
+    event = ClickedWord(
         user_id=current_user.id,
         document_id=document.id,
         paragraph_id=paragraph.id,
         word=payload.word,
         context=paragraph.text,
         was_highlighted=payload.was_highlighted,
-        mode=payload.mode,
+        mode="ml" if current_user.use_ml_predictions else "cefr",
     )
     db.add(event)
+    db.flush()  # get event.id before using it below
 
-    # Add a vocabulary card (user-facing)
-    vocab = VocabularyEntry(
-        user_id=current_user.id,
-        word=payload.word,
-        context=sentence,
-        translation=translation_text,
+    highlighted = (
+        db.query(HighlightedWord)
+        .filter(
+            HighlightedWord.user_id == current_user.id,
+            HighlightedWord.document_id == document.id,
+            HighlightedWord.page_number == page.page_number,
+            HighlightedWord.word == payload.word.lower(),
+        )
+        .first()
     )
-    db.add(vocab)
+    if highlighted:
+        highlighted.was_clicked = True
+        highlighted.clicked_word_id = event.id
+
+    # Add a vocabulary card (user-facing). skip if identical (word, translation) already exists
+    existing = (
+        db.query(VocabularyEntry)
+        .filter(
+            VocabularyEntry.user_id == current_user.id,
+            VocabularyEntry.word == payload.word,
+            VocabularyEntry.translation == translation_text,
+        )
+        .first()
+    )
+    if not existing:
+        db.add(VocabularyEntry(
+            user_id=current_user.id,
+            word=payload.word,
+            context=sentence,
+            translation=translation_text,
+        ))
 
     db.commit()
     db.refresh(event)
@@ -348,7 +528,7 @@ def delete_document(
 
     # Delete the database row.
     # Cascades: pages, paragraphs (via pages) cascade-delete.
-    # SET NULL: lookup_events.document_id and .paragraph_id become NULL,
+    # SET NULL: clicked_words.document_id and .paragraph_id become NULL,
     # so the research data persists.
     db.delete(document)
     db.commit()

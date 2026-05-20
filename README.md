@@ -1,11 +1,12 @@
 # TODOs
+no major todos rn
 
-- duplicate detection for vocabulary
+# Maybe TODOs
+- tougher duplicate detection for vocabulary?
 - support md and pdf files
-- find better data for complexity of words
-- enable ML in settings
+- generate more labeling for C1 and C2 words
 
-# Simois Setup Helper
+# Initial Setup
 
 ## Stack
 
@@ -71,16 +72,6 @@ You should see the login page with six test users (`learner_a1` through `learner
 - Test users are seeded automatically by Alembic (`learner_a1` through `learner_c2`, with reading levels A1–C2).
 - Uploaded files are stored in `./uploads/` (also gitignored).
 
-
-# Jojo Notes
-## Startup
-
-```
-docker compose up -d              # start Postgres
-source .venv/bin/activate         # activate venv
-uvicorn app.main:app --reload     # run app
-```
-
 ## Schema Changes
 
 ```
@@ -112,5 +103,22 @@ docker compose exec db psql -U lexetta -d lexetta
 docker compose down -v
 docker compose up -d
 alembic upgrade head
+```
+
+## Dataset 
+
+```
+docker compose exec db psql -U lexetta -d lexetta -c "SELECT cefr_level, COUNT(*) FROM word_cefr_levels GROUP BY cefr_level ORDER BY cefr_level;"
+```
+
+```
+ cefr_level | count 
+------------+-------
+ A1         |  1037
+ A2         |  1179
+ B1         |  2012
+ B2         |  2327
+ C1         |   885
+ C2         |   873
 ```
 

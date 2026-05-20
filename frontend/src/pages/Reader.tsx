@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import { api, type Page } from "../api";
+import { useAuth } from "../auth";
 import { tokenize } from "../lib/tokenize";
 import Token from "../components/Token";
 import WordTooltip from "../components/WordTooltip";
@@ -9,9 +10,13 @@ import WordTooltip from "../components/WordTooltip";
 export default function Reader() {
   const { documentId } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const [searchParams] = useSearchParams();
 
   const [page, setPage] = useState<Page | null>(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(
+    Math.max(1, Number(searchParams.get("page")) || 1)
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [difficultWords, setDifficultWords] = useState<Set<string>>(new Set());

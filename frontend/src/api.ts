@@ -65,6 +65,7 @@ export interface Page {
   page_number: number;
   total_pages: number;
   paragraphs: { id: number; text: string }[];
+  ml_highlights: string[] | null;
 }
 
 export interface TranslationResult {
@@ -83,6 +84,11 @@ export interface VocabularyCard {
 export const api = {
   listUsers: () => request<User[]>("/users"),
   me: () => request<User>("/me"),
+  updateMe: (settings: { use_ml_predictions: boolean }) =>
+    request<User>("/users/me", {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    }),
   listDocuments: () => request<Document[]>("/documents"),
   uploadDocument: (file: File) =>
     uploadFile<{ id: number; title: string; page_count: number }>(
@@ -95,7 +101,6 @@ export const api = {
     paragraph_id: number;
     word: string;
     was_highlighted: boolean;
-    mode?: string;
   }) =>
     request<{
       id: number;
@@ -110,6 +115,11 @@ export const api = {
     request<{ difficult: string[] }>("/difficulty", {
       method: "POST",
       body: JSON.stringify({ sentences }),
+    }),
+  prefetch: (words: { paragraph_id: number; word: string }[]) =>
+    request<{ queued: number }>("/prefetch", {
+      method: "POST",
+      body: JSON.stringify({ words }),
     }),
   listVocabulary: () => request<VocabularyCard[]>("/vocabulary"),
   exportVocabulary: () => {
