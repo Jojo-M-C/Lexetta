@@ -1,12 +1,13 @@
 # TODOs
-
-- tougher duplicate detection for vocabulary?
-- support md and pdf files
 - implement cache for highlighted words
-- generate more labeling for C1 and C2 words
 - single page edge case highlited_words
 
-# Simois Setup Helper
+# Maybe TODOs
+- tougher duplicate detection for vocabulary?
+- support md and pdf files
+- generate more labeling for C1 and C2 words
+
+# Initial Setup
 
 ## Stack
 
@@ -72,16 +73,6 @@ You should see the login page with six test users (`learner_a1` through `learner
 - Test users are seeded automatically by Alembic (`learner_a1` through `learner_c2`, with reading levels A1–C2).
 - Uploaded files are stored in `./uploads/` (also gitignored).
 
-
-# Jojo Notes
-## Startup
-
-```
-docker compose up -d              # start Postgres
-source .venv/bin/activate         # activate venv
-uvicorn app.main:app --reload     # run app
-```
-
 ## Schema Changes
 
 ```
@@ -117,7 +108,11 @@ alembic upgrade head
 
 ## Dataset 
 
- docker compose exec db psql -U lexetta -d lexetta -c "SELECT cefr_level, COUNT(*) FROM word_cefr_levels GROUP BY cefr_level ORDER BY cefr_level;"
+```
+docker compose exec db psql -U lexetta -d lexetta -c "SELECT cefr_level, COUNT(*) FROM word_cefr_levels GROUP BY cefr_level ORDER BY cefr_level;"
+```
+
+```
  cefr_level | count 
 ------------+-------
  A1         |  1037
@@ -126,4 +121,5 @@ alembic upgrade head
  B2         |  2327
  C1         |   885
  C2         |   873
+```
 

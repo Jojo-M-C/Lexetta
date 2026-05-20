@@ -94,6 +94,7 @@ class HighlightedWord(Base):
         ForeignKey("clicked_words.id", ondelete="SET NULL"), nullable=True
     )
     was_clicked: Mapped[bool] = mapped_column(default=False, server_default="false")
+    translation_target: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 
