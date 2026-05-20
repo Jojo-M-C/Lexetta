@@ -98,9 +98,11 @@ def difficult_words_ml(
     histories = [_get_user_history(user, db)] * len(tokens)
 
     preds = predict_batch(model, tokenizer, sentences, tokens, histories)
+    preds = zip(tokens, preds)
 
+    print(f"Predictions: {list(preds)}") 
     return {
         token.lower()
-        for token, score in zip(tokens, preds)
+        for token, score in preds
         if score >= ML_DIFFICULTY_THRESHOLD
     }
