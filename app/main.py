@@ -337,7 +337,6 @@ class LookupCreate(BaseModel):
     paragraph_id: int
     word: str
     was_highlighted: bool
-    mode: str = "translate"
 
 @app.post("/lookups")
 def create_lookup(
@@ -388,7 +387,7 @@ def create_lookup(
         word=payload.word,
         context=paragraph.text,
         was_highlighted=payload.was_highlighted,
-        mode=payload.mode,
+        mode="ml" if current_user.use_ml_predictions else "cefr",
     )
     db.add(event)
     db.flush()  # get event.id before using it below

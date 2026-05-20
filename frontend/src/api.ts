@@ -101,7 +101,6 @@ export const api = {
     paragraph_id: number;
     word: string;
     was_highlighted: boolean;
-    mode?: string;
   }) =>
     request<{
       id: number;

@@ -106,7 +106,6 @@ export default function Reader() {
         paragraph_id: paragraphId,
         word,
         was_highlighted: wasHighlighted,
-        mode: user?.use_ml_predictions ? "ml" : "translate",
       });
       setActiveTranslation(result.translation?.target ?? null);
     } catch (e) {
