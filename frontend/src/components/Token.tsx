@@ -28,7 +28,7 @@ export default function Token({ token, paragraphId, difficultWords, onWordClick 
       onClick={handleClick}
       className={
         difficult
-          ? "bg-orange-100 rounded px-1 cursor-pointer hover:bg-orange-200"
+          ? "bg-mint-100 rounded px-1 cursor-pointer hover:bg-mint-200"
           : "cursor-pointer hover:bg-gray-100 rounded"
       }
     >

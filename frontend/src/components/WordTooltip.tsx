@@ -54,12 +54,12 @@ export default function WordTooltip({ translation, loading, anchor, onClose }: P
     <div
       ref={refs.setFloating}
       style={floatingStyles}
-      className="bg-orange-100 text-gray-900 rounded-2xl px-4 py-1.5 text-base font-medium shadow-sm z-50 pointer-events-auto"
+      className="bg-mint-100 text-gray-900 rounded-2xl px-4 py-1.5 text-base font-medium shadow-sm z-50 pointer-events-auto"
     >
       {loading ? <span className="text-gray-500">…</span> : translation ?? "—"}
       <svg
         ref={arrowRef}
-        className="absolute fill-orange-100"
+        className="absolute fill-mint-100"
         style={{
           left: arrowX ?? 0,
           top: isAbove ? "100%" : undefined,
