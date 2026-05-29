@@ -12,6 +12,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     reading_level: Mapped[str | None] = mapped_column(String(2), nullable=True) # we trust that only correct values will be passed like A1, etc.
     use_ml_predictions: Mapped[bool] = mapped_column(default=False, server_default="false")
+    calibration_done: Mapped[bool] = mapped_column(default=False, server_default="false")
 
 class Document(Base):
     __tablename__ = "documents"
@@ -109,5 +110,28 @@ class VocabularyEntry(Base):
     word: Mapped[str] = mapped_column(String(128))
     context: Mapped[str] = mapped_column(Text)
     translation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+
+class CalibrationItem(Base):
+    __tablename__ = "calibration_items"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    word: Mapped[str] = mapped_column(String(128))
+    sentence: Mapped[str] = mapped_column(Text)
+    cefr_level: Mapped[str] = mapped_column(String(2))
+
+
+class CalibrationResponse(Base):
+    __tablename__ = "calibration_responses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    item_id: Mapped[int] = mapped_column(
+        ForeignKey("calibration_items.id", ondelete="CASCADE"), index=True
+    )
+    difficulty_rating: Mapped[int] = mapped_column(Integer)  # 1–5
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 

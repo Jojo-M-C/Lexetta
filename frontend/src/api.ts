@@ -49,6 +49,13 @@ export interface User {
   username: string;
   reading_level: string | null;
   use_ml_predictions: boolean;
+  calibration_done: boolean;
+}
+
+export interface CalibrationItem {
+  id: number;
+  word: string;
+  sentence: string;
 }
 
 export interface Document {
@@ -145,7 +152,13 @@ export const api = {
       });
   },
   deleteDocument: (id: number) =>
-  request<{ id: number; deleted: boolean }>(`/documents/${id}`, {
-    method: "DELETE",
-  }),
+    request<{ id: number; deleted: boolean }>(`/documents/${id}`, {
+      method: "DELETE",
+    }),
+  getCalibrationWords: () => request<CalibrationItem[]>("/calibration/words"),
+  submitCalibration: (ratings: { item_id: number; difficulty_rating: number }[]) =>
+    request<{ calibration_done: boolean }>("/calibration", {
+      method: "POST",
+      body: JSON.stringify({ ratings }),
+    }),
 };

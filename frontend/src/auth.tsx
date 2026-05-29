@@ -6,6 +6,7 @@ interface User {
   username: string;
   reading_level: string | null;
   use_ml_predictions: boolean;
+  calibration_done: boolean;
 }
 
 interface AuthContextValue {

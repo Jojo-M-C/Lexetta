@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import { api, type Page } from "../api";
-import { useAuth } from "../auth";
 import { tokenize } from "../lib/tokenize";
 import Token from "../components/Token";
 import WordTooltip from "../components/WordTooltip";
@@ -10,7 +9,6 @@ import WordTooltip from "../components/WordTooltip";
 export default function Reader() {
   const { documentId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [searchParams] = useSearchParams();
 
   const [page, setPage] = useState<Page | null>(null);
