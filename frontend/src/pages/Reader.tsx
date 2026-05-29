@@ -27,6 +27,7 @@ export default function Reader() {
     if (!documentId) return;
     setLoading(true);
     setError(null);
+    setDifficultWords(new Set());
 
     api
       .getPage(Number(documentId), currentPage)

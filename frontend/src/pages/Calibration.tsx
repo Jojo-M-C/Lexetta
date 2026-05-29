@@ -12,11 +12,11 @@ export default function Calibration() {
   const { user, updateUser } = useAuth();
   const navigate = useNavigate();
 
-  if (user?.calibration_done) return <Navigate to="/library" replace />;
-
   useEffect(() => {
     api.getCalibrationWords().then(setItems).catch((e) => setError(e.message));
   }, []);
+
+  if (user?.calibration_done) return <Navigate to="/library" replace />;
 
   if (error) {
     return (

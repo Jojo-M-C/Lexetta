@@ -24,7 +24,7 @@ export default function Login() {
     const user = users.find((u) => u.id === selectedId);
     if (!user) return;
     login(user);
-    navigate("/library");
+    navigate(user.calibration_done ? "/library" : "/calibration");
   };
 
   return (

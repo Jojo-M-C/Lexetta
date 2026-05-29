@@ -57,7 +57,8 @@ def _persist_highlighted_words(
         if word in existing:
             continue
         context = next(
-            (find_sentence(p.text, word) for p in paragraphs if word in p.text.lower()),
+            (find_sentence(p.text, word) for p in paragraphs
+             if re.search(r'\b' + re.escape(word) + r'\b', p.text, re.IGNORECASE)),
             "",
         )
         db.add(HighlightedWord(
