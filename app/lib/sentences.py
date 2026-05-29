@@ -6,9 +6,7 @@ _nlp = None
 def _get_nlp():
     global _nlp
     if _nlp is None:
-        # Sentence boundaries don't need parser/NER — keep this fast
-        _nlp = spacy.load("en_core_web_sm", disable=["parser", "ner", "lemmatizer"])
-        _nlp.add_pipe("sentencizer")
+        _nlp = spacy.load("en_core_web_sm", disable=["ner", "lemmatizer"])
     return _nlp
 
 

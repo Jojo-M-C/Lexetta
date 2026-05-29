@@ -3,7 +3,6 @@ no major todos rn
 
 # Maybe TODOs
 - tougher duplicate detection for vocabulary?
-- support md and pdf files
 - generate more labeling for C1 and C2 words
 
 # Initial Setup
