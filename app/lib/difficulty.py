@@ -5,10 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.lib.lemmatize import lemmatize_many
-from app.models import User, WordCefrLevel
+from app.models import ClickedWord, HighlightedWord, User, WordCefrLevel
 
 LEVEL_ORDER = {"A1": 1, "A2": 2, "B1": 3, "B2": 4, "C1": 5, "C2": 6}
 _load_lock = threading.Lock()
+_predict_lock = threading.Lock()
 _LCP_MODEL = None # stores (model, tokenizer)
 
 
@@ -67,8 +68,24 @@ def _load_lcp_model():
 
 
 def _get_user_history(user: User, db: Session) -> list[dict]:
-    # TODO: build the user's history from their lookup / vocabulary events.
-    return []
+    highlighted_not_clicked = (
+        db.query(HighlightedWord.word)
+        .filter(
+            HighlightedWord.user_id == user.id,
+            HighlightedWord.was_clicked.is_(False),
+        )
+        .all()
+    )
+    clicked = (
+        db.query(ClickedWord.word)
+        .filter(ClickedWord.user_id == user.id)
+        .all()
+    )
+    return [
+        {"token": row.word, "complexity": 0.25} for row in highlighted_not_clicked
+    ] + [
+        {"token": row.word, "complexity": 0.75} for row in clicked
+    ]
 
 
 def difficult_words_ml(
@@ -96,13 +113,12 @@ def difficult_words_ml(
 
     model, tokenizer = _load_lcp_model()
     histories = [_get_user_history(user, db)] * len(tokens)
+    with _predict_lock:
+        preds = predict_batch(model, tokenizer, sentences, tokens, histories)
+    preds = list(zip(tokens, preds))
 
-    preds = predict_batch(model, tokenizer, sentences, tokens, histories)
-    preds = zip(tokens, preds)
-
-    print(f"Predictions: {list(preds)}") 
-    return {
-        token.lower()
+    res = {token
         for token, score in preds
         if score >= ML_DIFFICULTY_THRESHOLD
     }
+    return res
