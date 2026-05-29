@@ -4,8 +4,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from app.lib.difficulty import difficult_words, difficult_words_ml
 from app.database import get_db, SessionLocal
-from app.models import User, Document, Page, Paragraph, ClickedWord, HighlightedWord, VocabularyEntry
+from app.models import User, Document, Page, Paragraph, ClickedWord, HighlightedWord, VocabularyEntry, CalibrationItem, CalibrationResponse
 from pydantic import BaseModel
+import random
 import re
 import uuid
 from pathlib import Path
@@ -171,6 +172,42 @@ def update_me(
     db.commit()
     db.refresh(current_user)
     return current_user
+
+@app.get("/calibration/words")
+def get_calibration_words(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    items = db.query(CalibrationItem).all()
+    random.shuffle(items)
+    return [{"id": i.id, "word": i.word, "sentence": i.sentence} for i in items]
+
+
+class CalibrationRating(BaseModel):
+    item_id: int
+    difficulty_rating: int  # 1–5
+
+class CalibrationSubmit(BaseModel):
+    ratings: list[CalibrationRating]
+
+@app.post("/calibration", status_code=201)
+def submit_calibration(
+    payload: CalibrationSubmit,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    for r in payload.ratings:
+        if not 1 <= r.difficulty_rating <= 5:
+            raise HTTPException(400, f"difficulty_rating must be 1–5, got {r.difficulty_rating}")
+        db.add(CalibrationResponse(
+            user_id=current_user.id,
+            item_id=r.item_id,
+            difficulty_rating=r.difficulty_rating,
+        ))
+    current_user.calibration_done = True
+    db.commit()
+    return {"calibration_done": True}
+
 
 @app.post("/documents")
 async def upload_document(
