@@ -5,7 +5,14 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.lib.lemmatize import lemmatize_many
-from app.models import ClickedWord, HighlightedWord, User, WordCefrLevel
+from app.models import (
+    CalibrationItem,
+    CalibrationResponse,
+    ClickedWord,
+    HighlightedWord,
+    User,
+    WordCefrLevel,
+)
 
 LEVEL_ORDER = {"A1": 1, "A2": 2, "B1": 3, "B2": 4, "C1": 5, "C2": 6}
 _load_lock = threading.Lock()
@@ -81,10 +88,21 @@ def _get_user_history(user: User, db: Session) -> list[dict]:
         .filter(ClickedWord.user_id == user.id)
         .all()
     )
+    # Explicit difficulty ratings from the onboarding calibration sequence.
+    # difficulty_rating is 1–5; map it onto the same 0–1 complexity scale.
+    calibration = (
+        db.query(CalibrationItem.word, CalibrationResponse.difficulty_rating)
+        .join(CalibrationResponse, CalibrationResponse.item_id == CalibrationItem.id)
+        .filter(CalibrationResponse.user_id == user.id)
+        .all()
+    )
     return [
         {"token": row.word, "complexity": 0.25} for row in highlighted_not_clicked
     ] + [
         {"token": row.word, "complexity": 0.75} for row in clicked
+    ] + [
+        {"token": row.word, "complexity": (row.difficulty_rating - 1) / 4}
+        for row in calibration
     ]
 
 
