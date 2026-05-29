@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { api, type CalibrationItem } from "../api";
 import { useAuth } from "../auth";
 
@@ -9,8 +9,10 @@ export default function Calibration() {
   const [ratings, setRatings] = useState<Record<number, number>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { updateUser } = useAuth();
+  const { user, updateUser } = useAuth();
   const navigate = useNavigate();
+
+  if (user?.calibration_done) return <Navigate to="/library" replace />;
 
   useEffect(() => {
     api.getCalibrationWords().then(setItems).catch((e) => setError(e.message));
