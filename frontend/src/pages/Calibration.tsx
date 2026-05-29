@@ -81,7 +81,7 @@ export default function Calibration() {
         <div className="flex items-center gap-3 mb-6">
           <div className="flex-1 bg-gray-100 rounded-full h-2">
             <div
-              className="bg-mint-400 h-2 rounded-full transition-all duration-300"
+              className="bg-orange-200 h-2 rounded-full transition-all duration-300"
               style={{ width: `${progress}%` }}
             />
           </div>
@@ -107,8 +107,8 @@ export default function Calibration() {
               onClick={() => handleRate(n)}
               className={`w-12 h-12 rounded-lg text-sm font-semibold transition-colors ${
                 currentRating === n
-                  ? "bg-mint-400 text-gray-900"
-                  : "bg-gray-100 text-gray-700 hover:bg-mint-100"
+                  ? "bg-orange-200 text-gray-900"
+                  : "bg-gray-100 text-gray-700 hover:bg-orange-100"
               }`}
             >
               {n}
