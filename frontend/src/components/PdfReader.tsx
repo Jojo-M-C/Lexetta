@@ -68,7 +68,8 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
   // Look up a clicked word and show its translation in the tooltip.
   const handleWordClick = async (
     e: React.MouseEvent<HTMLElement>,
-    word: string
+    word: string,
+    wasHighlighted: boolean
   ) => {
     e.stopPropagation();
     const anchor = e.currentTarget;
@@ -76,7 +77,7 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
     try {
       const result = await api.logLookup({
         word: normalize(word),
-        was_highlighted: true,
+        was_highlighted: wasHighlighted,
         document_id: documentId,
         page_text: pageTextRef.current,
       });
@@ -277,15 +278,22 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
         <div className="min-w-fit flex justify-center px-4">
           <div className="relative w-fit">
             <canvas ref={canvasRef} className="block shadow-md rounded" />
-            {/* Highlight overlay: transparent boxes over difficult words. */}
+            {/* Click overlay: every word is clickable for translation; difficult
+                words also get the orange highlight, others a subtle hover. */}
             <div className="absolute inset-0 pointer-events-none">
               {scale > 0 &&
-                words.map((w, i) =>
-                  difficult.has(normalize(w.text)) ? (
+                words.map((w, i) => {
+                  const isDifficult = difficult.has(normalize(w.text));
+                  return (
                     <button
                       key={i}
-                      onClick={(e) => handleWordClick(e, w.text)}
-                      className="absolute rounded-sm cursor-pointer pointer-events-auto transition-colors bg-[rgba(253,186,116,0.45)] hover:bg-[rgba(251,146,60,0.55)]"
+                      onClick={(e) => handleWordClick(e, w.text, isDifficult)}
+                      className={
+                        "absolute rounded-sm cursor-pointer pointer-events-auto transition-colors " +
+                        (isDifficult
+                          ? "bg-[rgba(253,186,116,0.45)] hover:bg-[rgba(251,146,60,0.55)]"
+                          : "hover:bg-[rgba(0,0,0,0.08)]")
+                      }
                       style={{
                         left: w.x0 * scale,
                         top: w.top * scale,
@@ -293,8 +301,8 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
                         height: (w.bottom - w.top) * scale,
                       }}
                     />
-                  ) : null
-                )}
+                  );
+                })}
             </div>
           </div>
         </div>
