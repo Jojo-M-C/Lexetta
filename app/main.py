@@ -229,23 +229,36 @@ async def upload_document(
         raise HTTPException(400, "No filename")
 
     ext = file.filename.rsplit(".", 1)[-1].lower()
-    if ext != "txt":
-        raise HTTPException(400, f"Unsupported format: .{ext} (only .txt for now)")
+    if ext not in ("txt", "pdf"):
+        raise HTTPException(400, f"Unsupported format: .{ext} (only .txt and .pdf)")
 
-    # Read file
+    # Read file (PDFs are binary and run larger than plain text)
     raw = await file.read()
-    if len(raw) > 5 * 1024 * 1024:  # 5 MB cap for txt
-        raise HTTPException(400, "File too large (max 5 MB)")
+    max_mb = 25 if ext == "pdf" else 5
+    if len(raw) > max_mb * 1024 * 1024:
+        raise HTTPException(400, f"File too large (max {max_mb} MB)")
 
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        raise HTTPException(400, "File is not valid UTF-8 text")
-
-    # Parse
-    pages_data = parse_txt(text)
-    if not pages_data:
-        raise HTTPException(400, "File appears to be empty")
+    # Parse/validate content before touching the disk so a bad file leaves nothing
+    # behind. txt: split into pages/paragraphs. pdf: confirm it opens and has pages.
+    pages_data: list[list[str]] | None = None
+    if ext == "txt":
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            raise HTTPException(400, "File is not valid UTF-8 text")
+        pages_data = parse_txt(text)
+        if not pages_data:
+            raise HTTPException(400, "File appears to be empty")
+    else:
+        if not raw.startswith(b"%PDF-"):
+            raise HTTPException(400, "File is not a valid PDF")
+        try:
+            with pdfplumber.open(io.BytesIO(raw)) as pdf:
+                pdf_page_count = len(pdf.pages)
+        except Exception:
+            raise HTTPException(400, "Could not read PDF")
+        if pdf_page_count == 0:
+            raise HTTPException(400, "PDF has no pages")
 
     # Save original to disk
     upload_dir = Path(settings.upload_dir)
@@ -257,7 +270,6 @@ async def upload_document(
     # Title = filename without extension
     title = file.filename.rsplit(".", 1)[0]
 
-    # Create database rows
     document = Document(
         user_id=current_user.id,
         title=title,
@@ -268,17 +280,21 @@ async def upload_document(
     db.add(document)
     db.flush()  # assigns document.id without committing
 
-    for page_idx, paragraphs in enumerate(pages_data, start=1):
-        page = Page(document_id=document.id, page_number=page_idx)
-        db.add(page)
-        db.flush()
+    # txt documents are stored as page/paragraph rows for the HTML reader. PDFs
+    # are rendered directly by the frontend (PDF.js + on-demand word boxes), so
+    # they need no structural rows.
+    if pages_data is not None:
+        for page_idx, paragraphs in enumerate(pages_data, start=1):
+            page = Page(document_id=document.id, page_number=page_idx)
+            db.add(page)
+            db.flush()
 
-        for para_idx, text in enumerate(paragraphs):
-            db.add(Paragraph(
-                page_id=page.id,
-                paragraph_index=para_idx,
-                text=text,
-            ))
+            for para_idx, para_text in enumerate(paragraphs):
+                db.add(Paragraph(
+                    page_id=page.id,
+                    paragraph_index=para_idx,
+                    text=para_text,
+                ))
 
     db.commit()
     db.refresh(document)
@@ -286,7 +302,7 @@ async def upload_document(
     return {
         "id": document.id,
         "title": document.title,
-        "page_count": len(pages_data),
+        "page_count": len(pages_data) if pages_data is not None else pdf_page_count,
     }
 
 
