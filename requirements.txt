@@ -32,3 +32,7 @@ spacy
 
 # openai: official OpenAI SDK for calling GPT models
 openai
+
+# pdfplumber: text extraction from PDF pages, used to build the
+# sentence context for translation lookups in the PDF reader.
+pdfplumber

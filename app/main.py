@@ -17,6 +17,7 @@ from app.lib.sentences import find_sentence
 import csv
 import io
 import os
+import pdfplumber
 from datetime import date
 from fastapi.responses import StreamingResponse
 
@@ -353,6 +354,105 @@ def get_page(
         "ml_highlights": ml_highlights,
     }
 
+@app.get("/documents/{document_id}/pdf")
+def get_document_pdf(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.get(Document, document_id)
+    if not document or document.user_id != current_user.id:
+        raise HTTPException(404, "Document not found")
+    if document.source_format != "pdf":
+        raise HTTPException(404, "Document is not a PDF")
+
+    path = Path(document.file_path)
+    if not path.exists():
+        raise HTTPException(404, "PDF file not found on disk")
+
+    def _stream():
+        with path.open("rb") as f:
+            while chunk := f.read(64 * 1024):
+                yield chunk
+
+    return StreamingResponse(
+        _stream(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": "inline"},
+    )
+
+
+@app.get("/documents/{document_id}/pages/{page_number}/text")
+def get_document_page_text(
+    document_id: int,
+    page_number: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.get(Document, document_id)
+    if not document or document.user_id != current_user.id:
+        raise HTTPException(404, "Document not found")
+    if document.source_format != "pdf":
+        raise HTTPException(404, "Document is not a PDF")
+
+    path = Path(document.file_path)
+    if not path.exists():
+        raise HTTPException(404, "PDF file not found on disk")
+
+    with pdfplumber.open(path) as pdf:
+        if page_number < 1 or page_number > len(pdf.pages):
+            raise HTTPException(404, "Page not found")
+        text = pdf.pages[page_number - 1].extract_text() or ""
+
+    return {"page": page_number, "text": text}
+
+
+@app.get("/documents/{document_id}/pages/{page_number}/words")
+def get_document_page_words(
+    document_id: int,
+    page_number: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.get(Document, document_id)
+    if not document or document.user_id != current_user.id:
+        raise HTTPException(404, "Document not found")
+    if document.source_format != "pdf":
+        raise HTTPException(404, "Document is not a PDF")
+
+    path = Path(document.file_path)
+    if not path.exists():
+        raise HTTPException(404, "PDF file not found on disk")
+
+    # Per-word bounding boxes in PDF points (top-left origin), so the frontend
+    # can overlay pixel-accurate highlights by scaling with the render scale.
+    # The text layer alone can't do this: a multi-word text run is a single
+    # span whose internal word positions only approximate the embedded font.
+    with pdfplumber.open(path) as pdf:
+        if page_number < 1 or page_number > len(pdf.pages):
+            raise HTTPException(404, "Page not found")
+        page = pdf.pages[page_number - 1]
+        words = [
+            {
+                "text": w["text"],
+                "x0": w["x0"],
+                "top": w["top"],
+                "x1": w["x1"],
+                "bottom": w["bottom"],
+            }
+            for w in page.extract_words()
+        ]
+        text = page.extract_text() or ""
+
+    return {
+        "page": page_number,
+        "width": float(page.width),
+        "height": float(page.height),
+        "text": text,
+        "words": words,
+    }
+
+
 class PrefetchItem(BaseModel):
     paragraph_id: int
     word: str
@@ -372,9 +472,13 @@ def prefetch_translations(
     return {"queued": len(payload.words)}
 
 class LookupCreate(BaseModel):
-    paragraph_id: int
     word: str
     was_highlighted: bool
+    paragraph_id: int | None = None
+    # PDF documents have no paragraph rows; the frontend instead sends the
+    # document id plus the extracted page text to use as sentence context.
+    document_id: int | None = None
+    page_text: str | None = None
 
 @app.post("/lookups")
 def create_lookup(
@@ -382,31 +486,48 @@ def create_lookup(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    paragraph = db.get(Paragraph, payload.paragraph_id)
-    if not paragraph:
-        raise HTTPException(404, "Paragraph not found")
+    # Resolve the document, the sentence context for translation, and the
+    # snapshot text stored on the ClickedWord. Two sources of context:
+    #   - txt documents identify a paragraph row (paragraph_id)
+    #   - pdf documents send document_id + page_text (no paragraph rows exist)
+    page = None
+    paragraph = None
+    if payload.paragraph_id is not None:
+        paragraph = db.get(Paragraph, payload.paragraph_id)
+        if not paragraph:
+            raise HTTPException(404, "Paragraph not found")
+        page = db.get(Page, paragraph.page_id)
+        if not page:
+            raise HTTPException(404, "Page not found")
+        document = db.get(Document, page.document_id)
+        if not document or document.user_id != current_user.id:
+            raise HTTPException(404, "Document not found")
+        sentence = find_sentence(paragraph.text, payload.word)
+        clicked_context = paragraph.text
+    else:
+        if payload.document_id is None or payload.page_text is None:
+            raise HTTPException(422, "Either paragraph_id or document_id with page_text is required")
+        document = db.get(Document, payload.document_id)
+        if not document or document.user_id != current_user.id:
+            raise HTTPException(404, "Document not found")
+        sentence = find_sentence(payload.page_text, payload.word)
+        clicked_context = payload.page_text
 
-    page = db.get(Page, paragraph.page_id)
-    if not page:
-        raise HTTPException(404, "Page not found")
-    document = db.get(Document, page.document_id)
-    if not document or document.user_id != current_user.id:
-        raise HTTPException(404, "Document not found")
-
-        # Find the specific sentence containing the clicked word
-    sentence = find_sentence(paragraph.text, payload.word)
-
-    cached = (
-        db.query(HighlightedWord)
-        .filter(
-            HighlightedWord.user_id == current_user.id,
-            HighlightedWord.document_id == document.id,
-            HighlightedWord.page_number == page.page_number,
-            HighlightedWord.word == payload.word.lower(),
-            HighlightedWord.translation_target.isnot(None),
+    # Reuse a prefetched/cached translation when one exists. Only txt documents
+    # have a prefetch path, so there is nothing to look up for PDFs.
+    cached = None
+    if page is not None:
+        cached = (
+            db.query(HighlightedWord)
+            .filter(
+                HighlightedWord.user_id == current_user.id,
+                HighlightedWord.document_id == document.id,
+                HighlightedWord.page_number == page.page_number,
+                HighlightedWord.word == payload.word.lower(),
+                HighlightedWord.translation_target.isnot(None),
+            )
+            .first()
         )
-        .first()
-    )
 
     translation_text: str | None = None
     if cached:
@@ -421,28 +542,29 @@ def create_lookup(
     event = ClickedWord(
         user_id=current_user.id,
         document_id=document.id,
-        paragraph_id=paragraph.id,
+        paragraph_id=paragraph.id if paragraph else None,
         word=payload.word,
-        context=paragraph.text,
+        context=clicked_context,
         was_highlighted=payload.was_highlighted,
         mode="ml" if current_user.use_ml_predictions else "cefr",
     )
     db.add(event)
     db.flush()  # get event.id before using it below
 
-    highlighted = (
-        db.query(HighlightedWord)
-        .filter(
-            HighlightedWord.user_id == current_user.id,
-            HighlightedWord.document_id == document.id,
-            HighlightedWord.page_number == page.page_number,
-            HighlightedWord.word == payload.word.lower(),
+    if page is not None:
+        highlighted = (
+            db.query(HighlightedWord)
+            .filter(
+                HighlightedWord.user_id == current_user.id,
+                HighlightedWord.document_id == document.id,
+                HighlightedWord.page_number == page.page_number,
+                HighlightedWord.word == payload.word.lower(),
+            )
+            .first()
         )
-        .first()
-    )
-    if highlighted:
-        highlighted.was_clicked = True
-        highlighted.clicked_word_id = event.id
+        if highlighted:
+            highlighted.was_clicked = True
+            highlighted.clicked_word_id = event.id
 
     # Add a vocabulary card (user-facing). skip if identical (word, translation) already exists
     existing = (

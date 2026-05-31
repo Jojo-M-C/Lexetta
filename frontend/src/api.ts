@@ -24,6 +24,11 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json();
 }
 
+function authHeaders(): Record<string, string> {
+  const userId = getUserId();
+  return userId !== null ? { "X-User-Id": String(userId) } : {};
+}
+
 async function uploadFile<T>(path: string, file: File): Promise<T> {
   const headers: Record<string, string> = {};
   const userId = getUserId();
@@ -75,6 +80,23 @@ export interface Page {
   ml_highlights: string[] | null;
 }
 
+// A word's bounding box on a PDF page, in PDF points (top-left origin).
+export interface PdfWord {
+  text: string;
+  x0: number;
+  top: number;
+  x1: number;
+  bottom: number;
+}
+
+export interface PdfPageWords {
+  page: number;
+  width: number;
+  height: number;
+  text: string;
+  words: PdfWord[];
+}
+
 export interface TranslationResult {
   target: string;
   source: string | null;
@@ -104,10 +126,24 @@ export const api = {
     ),
   getPage: (documentId: number, pageNumber: number) =>
     request<Page>(`/documents/${documentId}/pages/${pageNumber}`),
+  // Source params for PDF.js getDocument(): the streamed PDF endpoint plus the
+  // X-User-Id auth header, since PDF.js issues the request itself (not request()).
+  pdfDocumentSource: (documentId: number) => ({
+    url: `${BASE}/documents/${documentId}/pdf`,
+    httpHeaders: authHeaders(),
+  }),
+  getPdfPageText: (documentId: number, page: number) =>
+    request<{ page: number; text: string }>(
+      `/documents/${documentId}/pages/${page}/text`
+    ),
+  getPdfPageWords: (documentId: number, page: number) =>
+    request<PdfPageWords>(`/documents/${documentId}/pages/${page}/words`),
   logLookup: (params: {
-    paragraph_id: number;
     word: string;
     was_highlighted: boolean;
+    paragraph_id?: number;
+    document_id?: number;
+    page_text?: string;
   }) =>
     request<{
       id: number;
