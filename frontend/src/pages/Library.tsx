@@ -67,7 +67,9 @@ export default function Library() {
                 to={`/reader/${doc.id}?page=${doc.last_page_read}`}
                 className="bg-white rounded-lg shadow p-4 hover:shadow-md transition cursor-pointer block"
               >
-                <h3 className="font-bold text-lg pr-8">{doc.title}</h3>
+                <h3 className="font-bold text-lg pr-8 truncate" title={doc.title}>
+                  {doc.title}
+                </h3>
                 <p className="text-xs text-gray-500 mt-1">
                   {doc.source_format.toUpperCase()} ·{" "}
                   {new Date(doc.uploaded_at).toLocaleDateString()}
