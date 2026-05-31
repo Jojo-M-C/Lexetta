@@ -218,7 +218,7 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <div className="p-4 flex items-center justify-between">
+      <div className="p-4">
         <button
           onClick={() => navigate("/library")}
           className="bg-white shadow-sm rounded-lg px-4 py-2 text-sm font-medium flex items-center gap-2 hover:shadow-md transition"
@@ -226,29 +226,9 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
           <ArrowLeft size={16} />
           Back to Library
         </button>
-
-        <div className="bg-white shadow-sm rounded-2xl px-4 py-2 flex items-center gap-4">
-          <button
-            onClick={() => goToPage(currentPage - 1)}
-            disabled={!canGoPrev}
-            className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            <ChevronLeft size={18} />
-          </button>
-          <span className="text-sm text-gray-600 tabular-nums">
-            Page {currentPage} of {totalPages || "—"}
-          </span>
-          <button
-            onClick={() => goToPage(currentPage + 1)}
-            disabled={!canGoNext}
-            className="w-8 h-8 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            <ChevronRight size={18} />
-          </button>
-        </div>
       </div>
 
-      <div className="flex-1 flex justify-center px-4 pb-16">
+      <div className="flex-1 flex justify-center px-4 pb-32">
         <div ref={containerRef} className="relative w-full max-w-4xl">
           {error && <p className="text-red-600">Error: {error}</p>}
           {rendering && !error && (
@@ -278,6 +258,31 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
                 )}
             </div>
           </div>
+        </div>
+      </div>
+
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white shadow-lg rounded-2xl px-6 py-3 flex items-center gap-6">
+        <div className="text-xs text-gray-500 uppercase tracking-wide">
+          <p className="text-center">Progress</p>
+          <p className="font-semibold text-gray-900 normal-case">
+            Page {currentPage} of {totalPages || "—"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => goToPage(currentPage - 1)}
+            disabled={!canGoPrev}
+            className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <button
+            onClick={() => goToPage(currentPage + 1)}
+            disabled={!canGoNext}
+            className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <ChevronRight size={18} />
+          </button>
         </div>
       </div>
 
