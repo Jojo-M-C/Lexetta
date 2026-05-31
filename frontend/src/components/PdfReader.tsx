@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { api, type PdfWord } from "../api";
@@ -27,6 +27,13 @@ function normalize(token: string): string {
   return token.toLowerCase().replace(/[^a-z]/g, "");
 }
 
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 3;
+const ZOOM_STEP = 0.25;
+// Fit-to-width target at 100% zoom (Tailwind max-w-4xl), and horizontal padding.
+const MAX_WIDTH = 896;
+const PAGE_PADDING = 32;
+
 export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProps) {
   const navigate = useNavigate();
 
@@ -43,6 +50,13 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
   const [scale, setScale] = useState(0);
   const [words, setWords] = useState<PdfWord[]>([]);
   const [difficult, setDifficult] = useState<Set<string>>(new Set());
+
+  // User zoom, a multiplier on the fit-to-width base scale (1 = fit to width).
+  const [zoom, setZoom] = useState(1);
+  const zoomIn = () =>
+    setZoom((z) => Math.min(MAX_ZOOM, +(z + ZOOM_STEP).toFixed(2)));
+  const zoomOut = () =>
+    setZoom((z) => Math.max(MIN_ZOOM, +(z - ZOOM_STEP).toFixed(2)));
 
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -104,7 +118,50 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
     };
   }, [documentId]);
 
-  // Render the current page to the canvas, then fetch word boxes + difficulty.
+  // Fetch the page's word boxes and difficulty. Independent of zoom, so zooming
+  // re-renders the canvas without re-hitting these endpoints.
+  useEffect(() => {
+    if (!pdfDoc) return;
+    let cancelled = false;
+    setWords([]);
+    setDifficult(new Set());
+
+    (async () => {
+      try {
+        const data = await api.getPdfPageWords(documentId, currentPage);
+        if (cancelled) return;
+        pageTextRef.current = data.text;
+        setWords(data.words);
+
+        const uniq = new Set<string>();
+        for (const w of data.words) {
+          const clean = normalize(w.text);
+          if (clean.length > 1) uniq.add(clean);
+        }
+
+        let diff = new Set<string>();
+        if (uniq.size > 0) {
+          try {
+            const res = await api.getDifficulty([...uniq]);
+            diff = new Set(res.difficult.map((w) => w.toLowerCase()));
+          } catch (e) {
+            console.error("difficulty lookup failed:", e);
+          }
+        }
+        if (cancelled) return;
+        setDifficult(diff);
+      } catch (e) {
+        if (!cancelled) console.error("word fetch failed:", e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pdfDoc, currentPage, documentId]);
+
+  // Render the current page to the canvas. Re-runs on page or zoom change; the
+  // resulting `scale` repositions the highlight boxes to match.
   useEffect(() => {
     if (!pdfDoc) return;
     const container = containerRef.current;
@@ -115,8 +172,6 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
 
     (async () => {
       setRendering(true);
-      setWords([]);
-      setDifficult(new Set());
       try {
         if (renderTaskRef.current) {
           renderTaskRef.current.cancel();
@@ -126,7 +181,8 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
         const page = await pdfDoc.getPage(currentPage);
         if (cancelled) return;
 
-        const s = container.offsetWidth / page.getViewport({ scale: 1 }).width;
+        const baseWidth = Math.min(container.clientWidth - PAGE_PADDING, MAX_WIDTH);
+        const s = (baseWidth / page.getViewport({ scale: 1 }).width) * zoom;
         const viewport = page.getViewport({ scale: s });
 
         const ctx = canvas.getContext("2d");
@@ -151,29 +207,6 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
         await renderTask.promise;
         if (cancelled) return;
         setScale(s);
-
-        const data = await api.getPdfPageWords(documentId, currentPage);
-        if (cancelled) return;
-        pageTextRef.current = data.text;
-        setWords(data.words);
-
-        const uniq = new Set<string>();
-        for (const w of data.words) {
-          const clean = normalize(w.text);
-          if (clean.length > 1) uniq.add(clean);
-        }
-
-        let diff = new Set<string>();
-        if (uniq.size > 0) {
-          try {
-            const res = await api.getDifficulty([...uniq]);
-            diff = new Set(res.difficult.map((w) => w.toLowerCase()));
-          } catch (e) {
-            console.error("difficulty lookup failed:", e);
-          }
-        }
-        if (cancelled) return;
-        setDifficult(diff);
       } catch (e) {
         if (
           !cancelled &&
@@ -194,7 +227,7 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
         renderTaskRef.current = null;
       }
     };
-  }, [pdfDoc, currentPage, documentId]);
+  }, [pdfDoc, currentPage, zoom]);
 
   const goToPage = (page: number) => {
     if (page < 1 || (totalPages && page > totalPages)) return;
@@ -228,15 +261,21 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
         </button>
       </div>
 
-      <div className="flex-1 flex justify-center px-4 pb-32">
-        <div ref={containerRef} className="relative w-full max-w-4xl">
-          {error && <p className="text-red-600">Error: {error}</p>}
-          {rendering && !error && (
-            <p className="text-gray-500 absolute top-0 left-1/2 -translate-x-1/2">
-              Loading…
-            </p>
-          )}
-          <div className="relative mx-auto" style={{ width: "fit-content" }}>
+      {/* Scroll viewport: measured for fit-to-width, scrolls when zoomed in. */}
+      <div ref={containerRef} className="flex-1 overflow-auto pb-32 relative">
+        {error && (
+          <p className="absolute top-4 left-1/2 -translate-x-1/2 text-red-600 z-10">
+            Error: {error}
+          </p>
+        )}
+        {rendering && !error && (
+          <p className="absolute top-4 left-1/2 -translate-x-1/2 text-gray-500 z-10">
+            Loading…
+          </p>
+        )}
+        {/* min-w-fit keeps the page centered when it fits and scrollable when not. */}
+        <div className="min-w-fit flex justify-center px-4">
+          <div className="relative w-fit">
             <canvas ref={canvasRef} className="block shadow-md rounded" />
             {/* Highlight overlay: transparent boxes over difficult words. */}
             <div className="absolute inset-0 pointer-events-none">
@@ -262,6 +301,28 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
       </div>
 
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white shadow-lg rounded-2xl px-6 py-3 flex items-center gap-6">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={zoomOut}
+            disabled={zoom <= MIN_ZOOM}
+            aria-label="Zoom out"
+            className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <ZoomOut size={18} />
+          </button>
+          <span className="text-sm text-gray-600 tabular-nums w-11 text-center">
+            {Math.round(zoom * 100)}%
+          </span>
+          <button
+            onClick={zoomIn}
+            disabled={zoom >= MAX_ZOOM}
+            aria-label="Zoom in"
+            className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <ZoomIn size={18} />
+          </button>
+        </div>
+
         <div className="text-xs text-gray-500 uppercase tracking-wide">
           <p className="text-center">Progress</p>
           <p className="font-semibold text-gray-900 normal-case">
