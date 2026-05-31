@@ -305,7 +305,10 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
                       className={
                         "absolute rounded-sm cursor-pointer pointer-events-auto transition-colors " +
                         (isDifficult
-                          ? "bg-[rgba(253,186,116,0.45)] hover:bg-[rgba(251,146,60,0.55)]"
+                          ? // mix-blend-multiply puts the highlight behind the
+                            // text: it tints the white page but leaves the black
+                            // glyphs black, matching the txt reader's orange-100/200.
+                            "bg-orange-100 mix-blend-multiply hover:bg-orange-200"
                           : "hover:bg-[rgba(0,0,0,0.08)]")
                       }
                       style={{
