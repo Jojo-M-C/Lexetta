@@ -132,6 +132,64 @@ def _prefetch_translation(paragraph_id: int, word: str, user_id: int, mode: str)
     finally:
         db.close()
 
+
+def _prefetch_translation_pdf(
+    document_id: int,
+    page_number: int,
+    word: str,
+    page_text: str,
+    user_id: int,
+    mode: str,
+) -> None:
+    # PDF counterpart to _prefetch_translation: PDFs have no paragraph rows, so
+    # the page text comes from the client (already extracted) rather than the DB.
+    db = SessionLocal()
+    try:
+        document = db.get(Document, document_id)
+        if not document or document.user_id != user_id:
+            return
+
+        word_lower = word.lower()
+        highlighted = (
+            db.query(HighlightedWord)
+            .filter(
+                HighlightedWord.user_id == user_id,
+                HighlightedWord.document_id == document_id,
+                HighlightedWord.page_number == page_number,
+                HighlightedWord.word == word_lower,
+            )
+            .first()
+        )
+
+        if highlighted and highlighted.translation_target:
+            return
+
+        sentence = find_sentence(page_text, word)
+
+        if not highlighted:
+            highlighted = HighlightedWord(
+                user_id=user_id,
+                document_id=document_id,
+                page_number=page_number,
+                word=word_lower,
+                context=sentence,
+                mode=mode,
+            )
+            db.add(highlighted)
+
+        try:
+            result = get_translator().translate(word, context=sentence)
+            if result:
+                highlighted.translation_target = result.target
+        except Exception as e:
+            print(f"PDF prefetch translation error for '{word}': {e}")
+
+        db.commit()
+    except Exception as e:
+        print(f"PDF prefetch task error: {e}")
+    finally:
+        db.close()
+
 app = FastAPI(title="Lexetta")
 
 app.add_middleware(
@@ -494,13 +552,41 @@ def prefetch_translations(
         background_tasks.add_task(_prefetch_translation, item.paragraph_id, item.word, current_user.id, mode)
     return {"queued": len(payload.words)}
 
+
+class PdfPrefetchRequest(BaseModel):
+    document_id: int
+    page_number: int
+    page_text: str
+    words: list[str]
+
+@app.post("/prefetch/pdf", status_code=202)
+def prefetch_pdf_translations(
+    payload: PdfPrefetchRequest,
+    background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user),
+):
+    mode = "ml" if current_user.use_ml_predictions else "cefr"
+    for word in payload.words:
+        background_tasks.add_task(
+            _prefetch_translation_pdf,
+            payload.document_id,
+            payload.page_number,
+            word,
+            payload.page_text,
+            current_user.id,
+            mode,
+        )
+    return {"queued": len(payload.words)}
+
 class LookupCreate(BaseModel):
     word: str
     was_highlighted: bool
     paragraph_id: int | None = None
     # PDF documents have no paragraph rows; the frontend instead sends the
-    # document id plus the extracted page text to use as sentence context.
+    # document id, page number, and extracted page text. page_number keys the
+    # translation cache (HighlightedWord) just like the txt reader's pages.
     document_id: int | None = None
+    page_number: int | None = None
     page_text: str | None = None
 
 @app.post("/lookups")
@@ -515,6 +601,8 @@ def create_lookup(
     #   - pdf documents send document_id + page_text (no paragraph rows exist)
     page = None
     paragraph = None
+    page_number: int | None = None
+    mode = "ml" if current_user.use_ml_predictions else "cefr"
     if payload.paragraph_id is not None:
         paragraph = db.get(Paragraph, payload.paragraph_id)
         if not paragraph:
@@ -527,6 +615,7 @@ def create_lookup(
             raise HTTPException(404, "Document not found")
         sentence = find_sentence(paragraph.text, payload.word)
         clicked_context = paragraph.text
+        page_number = page.page_number
     else:
         if payload.document_id is None or payload.page_text is None:
             raise HTTPException(422, "Either paragraph_id or document_id with page_text is required")
@@ -535,17 +624,18 @@ def create_lookup(
             raise HTTPException(404, "Document not found")
         sentence = find_sentence(payload.page_text, payload.word)
         clicked_context = payload.page_text
+        page_number = payload.page_number
 
-    # Reuse a prefetched/cached translation when one exists. Only txt documents
-    # have a prefetch path, so there is nothing to look up for PDFs.
+    # Reuse a cached translation when one exists, keyed by document + page + word.
+    # Both readers warm difficult words via a prefetch endpoint on page load.
     cached = None
-    if page is not None:
+    if page_number is not None:
         cached = (
             db.query(HighlightedWord)
             .filter(
                 HighlightedWord.user_id == current_user.id,
                 HighlightedWord.document_id == document.id,
-                HighlightedWord.page_number == page.page_number,
+                HighlightedWord.page_number == page_number,
                 HighlightedWord.word == payload.word.lower(),
                 HighlightedWord.translation_target.isnot(None),
             )
@@ -569,25 +659,28 @@ def create_lookup(
         word=payload.word,
         context=clicked_context,
         was_highlighted=payload.was_highlighted,
-        mode="ml" if current_user.use_ml_predictions else "cefr",
+        mode=mode,
     )
     db.add(event)
     db.flush()  # get event.id before using it below
 
-    if page is not None:
+    if page_number is not None:
         highlighted = (
             db.query(HighlightedWord)
             .filter(
                 HighlightedWord.user_id == current_user.id,
                 HighlightedWord.document_id == document.id,
-                HighlightedWord.page_number == page.page_number,
+                HighlightedWord.page_number == page_number,
                 HighlightedWord.word == payload.word.lower(),
             )
             .first()
         )
-        if highlighted:
+        if highlighted is not None:
             highlighted.was_clicked = True
             highlighted.clicked_word_id = event.id
+            # Backfill the cache if a live lookup beat the prefetch task to it.
+            if highlighted.translation_target is None and translation_text is not None:
+                highlighted.translation_target = translation_text
 
     # Add a vocabulary card (user-facing). skip if identical (word, translation) already exists
     existing = (

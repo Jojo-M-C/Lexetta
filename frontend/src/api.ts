@@ -143,6 +143,7 @@ export const api = {
     was_highlighted: boolean;
     paragraph_id?: number;
     document_id?: number;
+    page_number?: number;
     page_text?: string;
   }) =>
     request<{
@@ -163,6 +164,16 @@ export const api = {
     request<{ queued: number }>("/prefetch", {
       method: "POST",
       body: JSON.stringify({ words }),
+    }),
+  prefetchPdf: (params: {
+    document_id: number;
+    page_number: number;
+    page_text: string;
+    words: string[];
+  }) =>
+    request<{ queued: number }>("/prefetch/pdf", {
+      method: "POST",
+      body: JSON.stringify(params),
     }),
   listVocabulary: () => request<VocabularyCard[]>("/vocabulary"),
   exportVocabulary: () => {

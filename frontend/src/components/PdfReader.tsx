@@ -79,6 +79,7 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
         word: normalize(word),
         was_highlighted: wasHighlighted,
         document_id: documentId,
+        page_number: currentPage,
         page_text: pageTextRef.current,
       });
       setTooltip((prev) =>
@@ -151,6 +152,19 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
         }
         if (cancelled) return;
         setDifficult(diff);
+
+        // Warm the translation cache for highlighted words so clicking them
+        // feels instant (the lookup then hits the cache instead of OpenAI).
+        if (diff.size > 0) {
+          api
+            .prefetchPdf({
+              document_id: documentId,
+              page_number: currentPage,
+              page_text: data.text,
+              words: [...diff],
+            })
+            .catch(() => {});
+        }
       } catch (e) {
         if (!cancelled) console.error("word fetch failed:", e);
       }
