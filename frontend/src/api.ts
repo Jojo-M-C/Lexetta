@@ -176,6 +176,10 @@ export const api = {
       body: JSON.stringify(params),
     }),
   listVocabulary: () => request<VocabularyCard[]>("/vocabulary"),
+  deleteVocabulary: (id: number) =>
+    request<{ id: number; deleted: boolean }>(`/vocabulary/${id}`, {
+      method: "DELETE",
+    }),
   exportVocabulary: () => {
     const userId = getUserId();
     const url = `${BASE}/vocabulary/export`;

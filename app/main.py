@@ -735,6 +735,19 @@ def list_vocabulary(
         for e in entries
     ]
 
+@app.delete("/vocabulary/{entry_id}")
+def delete_vocabulary(
+    entry_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    entry = db.get(VocabularyEntry, entry_id)
+    if not entry or entry.user_id != current_user.id:
+        raise HTTPException(404, "Vocabulary entry not found")
+    db.delete(entry)
+    db.commit()
+    return {"id": entry_id, "deleted": True}
+
 class DifficultyRequest(BaseModel):
     words: list[str]
 @app.post("/difficulty")

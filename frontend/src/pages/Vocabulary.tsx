@@ -1,12 +1,26 @@
 import { useEffect, useState } from "react";
 import { api, type VocabularyCard } from "../api";
-import { Download } from "lucide-react";
+import { Download, Trash2 } from "lucide-react";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 export default function Vocabulary() {
   const [cards, setCards] = useState<VocabularyCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [cardToDelete, setCardToDelete] = useState<VocabularyCard | null>(null);
+
+  const confirmDelete = async () => {
+    if (!cardToDelete) return;
+    const id = cardToDelete.id;
+    setCardToDelete(null);
+    try {
+      await api.deleteVocabulary(id);
+      setCards((cs) => cs.filter((c) => c.id !== id));
+    } catch (err) {
+      alert(`Delete failed: ${err instanceof Error ? err.message : err}`);
+    }
+  };
 
   useEffect(() => {
     api
@@ -68,8 +82,17 @@ export default function Vocabulary() {
           {filtered.map((card) => (
             <div
               key={card.id}
-              className="bg-white rounded-lg shadow-sm border border-gray-200 grid grid-cols-2 divide-x divide-gray-200"
+              className="relative group bg-white rounded-lg shadow-sm border border-gray-200 grid grid-cols-2 divide-x divide-gray-200"
             >
+              <button
+                onClick={() => setCardToDelete(card)}
+                className="absolute top-2 right-2 z-10 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md opacity-0 group-hover:opacity-100 transition"
+                aria-label={`Delete ${card.word}`}
+                title="Delete card"
+              >
+                <Trash2 size={16} />
+              </button>
+
               {/* Front: word + context */}
               <div className="p-5">
                 <h3 className="font-bold text-lg mb-2">{card.word}</h3>
@@ -95,6 +118,20 @@ export default function Vocabulary() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={cardToDelete !== null}
+        title="Delete card?"
+        message={
+          cardToDelete
+            ? `"${cardToDelete.word}" will be permanently deleted. This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={confirmDelete}
+        onCancel={() => setCardToDelete(null)}
+      />
     </div>
   );
 }
