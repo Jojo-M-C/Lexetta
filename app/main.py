@@ -23,6 +23,13 @@ from fastapi.responses import StreamingResponse
 
 _WORD_RE = re.compile(r"[a-zA-Z]+(?:['\-][a-zA-Z]+)*")
 
+# pdfplumber.extract_words() starts a new word when the gap between characters
+# exceeds x_tolerance. Justified PDFs often have word gaps (~2.5pt) narrower than
+# the 3pt default, so whole lines collapse into one token — which would produce
+# line-spanning highlights. 2pt sits between the within-word (~0pt) and
+# between-word gaps, splitting words correctly without breaking them apart.
+_PDF_WORD_X_TOLERANCE = 2
+
 
 def _extract_words(paragraphs: list[Paragraph]) -> list[str]:
     seen: set[str] = set()
@@ -440,7 +447,7 @@ def get_document_page_words(
                 "x1": w["x1"],
                 "bottom": w["bottom"],
             }
-            for w in page.extract_words()
+            for w in page.extract_words(x_tolerance=_PDF_WORD_X_TOLERANCE)
         ]
         text = page.extract_text() or ""
 
