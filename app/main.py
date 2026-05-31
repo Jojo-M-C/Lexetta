@@ -682,23 +682,30 @@ def create_lookup(
             if highlighted.translation_target is None and translation_text is not None:
                 highlighted.translation_target = translation_text
 
-    # Add a vocabulary card (user-facing). skip if identical (word, translation) already exists
+    # Add a vocabulary card. A card is a word in a specific sentence, so dedup on
+    # (word, context): the same word in a new sentence is a new card, but an exact
+    # repeat (e.g. double-clicking, or re-reading the same line) isn't duplicated.
+    # Deduping on (word, translation) alone was too broad — once a word was carded
+    # it could never be added again from any other document or context.
     existing = (
         db.query(VocabularyEntry)
         .filter(
             VocabularyEntry.user_id == current_user.id,
             VocabularyEntry.word == payload.word,
-            VocabularyEntry.translation == translation_text,
+            VocabularyEntry.context == sentence,
         )
         .first()
     )
-    if not existing:
+    if existing is None:
         db.add(VocabularyEntry(
             user_id=current_user.id,
             word=payload.word,
             context=sentence,
             translation=translation_text,
         ))
+    elif existing.translation is None and translation_text is not None:
+        # Fill in a translation that failed on a previous click.
+        existing.translation = translation_text
 
     db.commit()
     db.refresh(event)
