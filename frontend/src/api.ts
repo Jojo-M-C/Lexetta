@@ -231,6 +231,11 @@ export const api = {
     request<{ id: number; deleted: boolean }>(`/documents/${id}`, {
       method: "DELETE",
     }),
+  renameDocument: (id: number, title: string) =>
+    request<{ id: number; title: string }>(`/documents/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
   getCalibrationWords: () => request<CalibrationItem[]>("/calibration/words"),
   submitCalibration: (ratings: { item_id: number; difficulty_rating: number }[]) =>
     request<{ calibration_done: boolean }>("/calibration", {

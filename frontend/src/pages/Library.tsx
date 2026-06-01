@@ -2,13 +2,15 @@ import { useEffect, useState } from "react";
 import { api, type Document } from "../api";
 import UploadButton from "../components/UploadButton";
 import ConfirmDialog from "../components/ConfirmDialog";
+import RenameDialog from "../components/RenameDialog";
 import { Link } from "react-router-dom";
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 
 export default function Library() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [docToDelete, setDocToDelete] = useState<Document | null>(null);
+  const [docToRename, setDocToRename] = useState<Document | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -42,6 +44,26 @@ export default function Library() {
     }
   };
 
+  const requestRename = (e: React.MouseEvent, doc: Document) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDocToRename(doc);
+  };
+
+  const confirmRename = async (title: string) => {
+    if (!docToRename) return;
+    const id = docToRename.id;
+    setDocToRename(null);
+    try {
+      const { title: newTitle } = await api.renameDocument(id, title);
+      setDocuments((docs) =>
+        docs.map((d) => (d.id === id ? { ...d, title: newTitle } : d))
+      );
+    } catch (err) {
+      alert(`Rename failed: ${err instanceof Error ? err.message : err}`);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="flex justify-between items-center mb-8">
@@ -67,7 +89,7 @@ export default function Library() {
                 to={`/reader/${doc.id}?page=${doc.last_page_read}`}
                 className="bg-white rounded-lg shadow p-4 hover:shadow-md transition cursor-pointer block"
               >
-                <h3 className="font-bold text-lg pr-8 truncate" title={doc.title}>
+                <h3 className="font-bold text-lg pr-16 truncate" title={doc.title}>
                   {doc.title}
                 </h3>
                 <p className="text-xs text-gray-500 mt-1">
@@ -75,14 +97,24 @@ export default function Library() {
                   {new Date(doc.uploaded_at).toLocaleDateString()}
                 </p>
               </Link>
-              <button
-                onClick={(e) => requestDelete(e, doc)}
-                className="absolute top-2 right-2 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md opacity-0 group-hover:opacity-100 transition"
-                aria-label={`Delete ${doc.title}`}
-                title="Delete document"
-              >
-                <Trash2 size={16} />
-              </button>
+              <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                <button
+                  onClick={(e) => requestRename(e, doc)}
+                  className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md"
+                  aria-label={`Rename ${doc.title}`}
+                  title="Rename document"
+                >
+                  <Pencil size={16} />
+                </button>
+                <button
+                  onClick={(e) => requestDelete(e, doc)}
+                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md"
+                  aria-label={`Delete ${doc.title}`}
+                  title="Delete document"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -100,6 +132,13 @@ export default function Library() {
         destructive
         onConfirm={confirmDelete}
         onCancel={() => setDocToDelete(null)}
+      />
+
+      <RenameDialog
+        open={docToRename !== null}
+        initialTitle={docToRename?.title ?? ""}
+        onSave={confirmRename}
+        onCancel={() => setDocToRename(null)}
       />
     </div>
   );

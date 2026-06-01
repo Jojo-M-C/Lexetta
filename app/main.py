@@ -1001,3 +1001,30 @@ def delete_document(
         print(f"Failed to delete file {file_path}: {e}")
 
     return {"id": document_id, "deleted": True}
+
+
+class DocumentRename(BaseModel):
+    title: str
+
+
+@app.patch("/documents/{document_id}")
+def rename_document(
+    document_id: int,
+    payload: DocumentRename,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.get(Document, document_id)
+    if not document or document.user_id != current_user.id:
+        raise HTTPException(404, "Document not found")
+
+    title = payload.title.strip()
+    if not title:
+        raise HTTPException(400, "Title cannot be empty")
+    if len(title) > 255:  # matches Document.title column length
+        raise HTTPException(400, "Title is too long (max 255 characters)")
+
+    document.title = title
+    db.commit()
+
+    return {"id": document.id, "title": document.title}
