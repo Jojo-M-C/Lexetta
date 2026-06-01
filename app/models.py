@@ -22,11 +22,21 @@ class Document(Base):
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     title: Mapped[str] = mapped_column(String(255))
-    source_format: Mapped[str] = mapped_column(String(8))  # 'txt', 'md', 'pdf'
+    source_format: Mapped[str] = mapped_column(String(8))  # 'txt', 'epub', 'pdf'
     original_filename: Mapped[str] = mapped_column(String(255))
     file_path: Mapped[str] = mapped_column(Text)
     last_page_read: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     uploaded_at: Mapped[datetime] = mapped_column(server_default=func.now())
+
+class Chapter(Base):
+    __tablename__ = "chapters"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    document_id: Mapped[int] = mapped_column(
+        ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    chapter_index: Mapped[int] = mapped_column(Integer)  # reading order, 0-based
+    title: Mapped[str] = mapped_column(String(512))
 
 class Page(Base):
     __tablename__ = "pages"
@@ -34,6 +44,10 @@ class Page(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     document_id: Mapped[int] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), index=True
+    )
+    # Set for EPUB pages (which belong to a chapter); null for txt/pdf.
+    chapter_id: Mapped[int | None] = mapped_column(
+        ForeignKey("chapters.id", ondelete="CASCADE"), nullable=True, index=True
     )
     page_number: Mapped[int] = mapped_column(Integer)
 
@@ -46,6 +60,18 @@ class Paragraph(Base):
     )
     paragraph_index: Mapped[int] = mapped_column(Integer)
     text: Mapped[str] = mapped_column(Text)
+
+
+class EpubImage(Base):
+    __tablename__ = "epub_images"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    page_id: Mapped[int] = mapped_column(
+        ForeignKey("pages.id", ondelete="CASCADE"), index=True
+    )
+    href: Mapped[str] = mapped_column(Text)              # zip-internal path of the image
+    alt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    after_paragraph_index: Mapped[int] = mapped_column(Integer)  # page-local; -1 = top of page
 
 
 class ClickedWord(Base):

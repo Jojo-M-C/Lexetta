@@ -71,6 +71,12 @@ export interface Document {
   last_page_read: number;
 }
 
+export interface PageImage {
+  url: string;
+  alt: string | null;
+  after_paragraph_index: number;
+}
+
 export interface Page {
   document_id: number;
   title: string;
@@ -78,6 +84,15 @@ export interface Page {
   total_pages: number;
   paragraphs: { id: number; text: string }[];
   ml_highlights: string[] | null;
+  // EPUB-only; null/empty for txt and pdf pages.
+  chapter: { index: number; title: string } | null;
+  images: PageImage[];
+}
+
+export interface Chapter {
+  index: number;
+  title: string;
+  page_number: number;
 }
 
 // A word's bounding box on a PDF page, in PDF points (top-left origin).
@@ -126,6 +141,16 @@ export const api = {
     ),
   getPage: (documentId: number, pageNumber: number) =>
     request<Page>(`/documents/${documentId}/pages/${pageNumber}`),
+  getChapters: (documentId: number) =>
+    request<{ chapters: Chapter[] }>(`/documents/${documentId}/chapters`),
+  // EPUB images live inside the stored zip behind an auth-checked endpoint, so
+  // <img src> can't load them directly (no custom headers). Fetch as a blob with
+  // the user header and return an object URL the caller must revoke when done.
+  fetchImageObjectUrl: async (path: string) => {
+    const res = await fetch(`${BASE}${path}`, { headers: authHeaders() });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    return URL.createObjectURL(await res.blob());
+  },
   // Source params for PDF.js getDocument(): the streamed PDF endpoint plus the
   // X-User-Id auth header, since PDF.js issues the request itself (not request()).
   pdfDocumentSource: (documentId: number) => ({

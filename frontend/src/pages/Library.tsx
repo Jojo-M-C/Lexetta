@@ -56,7 +56,7 @@ export default function Library() {
       ) : documents.length === 0 ? (
         <div className="bg-white rounded-lg shadow p-6">
           <p className="text-gray-500">
-            No documents yet. Upload a .txt or .pdf file to get started.
+            No documents yet. Upload a .txt, .pdf, or .epub file to get started.
           </p>
         </div>
       ) : (

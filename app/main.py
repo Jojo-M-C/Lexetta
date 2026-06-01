@@ -5,7 +5,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from app.lib.difficulty import difficult_words, difficult_words_ml
 from app.database import get_db, SessionLocal
-from app.models import User, Document, Page, Paragraph, ClickedWord, HighlightedWord, VocabularyEntry, CalibrationItem, CalibrationResponse
+from app.models import User, Document, Page, Paragraph, Chapter, EpubImage, ClickedWord, HighlightedWord, VocabularyEntry, CalibrationItem, CalibrationResponse
 from pydantic import BaseModel
 import random
 import re
@@ -13,6 +13,10 @@ import uuid
 from pathlib import Path
 from app.config import settings
 from app.parsers.plain_text import parse_txt
+from app.parsers.epub import parse_epub, EpubChapter
+import zipfile
+import mimetypes
+import posixpath
 from app.lib.translators.factory import get_translator
 from app.lib.sentences import find_sentence
 import csv
@@ -284,18 +288,20 @@ async def upload_document(
         raise HTTPException(400, "No filename")
 
     ext = file.filename.rsplit(".", 1)[-1].lower()
-    if ext not in ("txt", "pdf"):
-        raise HTTPException(400, f"Unsupported format: .{ext} (only .txt and .pdf)")
+    if ext not in ("txt", "pdf", "epub"):
+        raise HTTPException(400, f"Unsupported format: .{ext} (only .txt, .pdf and .epub)")
 
-    # Read file (PDFs are binary and run larger than plain text)
+    # Read file (PDFs/EPUBs are binary and run larger than plain text)
     raw = await file.read()
-    max_mb = 25 if ext == "pdf" else 5
+    max_mb = 5 if ext == "txt" else 25
     if len(raw) > max_mb * 1024 * 1024:
         raise HTTPException(400, f"File too large (max {max_mb} MB)")
 
     # Parse/validate content before touching the disk so a bad file leaves nothing
     # behind. txt: split into pages/paragraphs. pdf: confirm it opens and has pages.
+    # epub: extract chapters → pages/paragraphs/images.
     pages_data: list[list[str]] | None = None
+    epub_chapters: list[EpubChapter] | None = None
     if ext == "txt":
         try:
             text = raw.decode("utf-8")
@@ -304,6 +310,16 @@ async def upload_document(
         pages_data = parse_txt(text)
         if not pages_data:
             raise HTTPException(400, "File appears to be empty")
+    elif ext == "epub":
+        # EPUB is a ZIP archive (magic bytes "PK\x03\x04").
+        if not raw.startswith(b"PK\x03\x04"):
+            raise HTTPException(400, "File is not a valid EPUB")
+        try:
+            epub_chapters = parse_epub(raw)
+        except Exception:
+            raise HTTPException(400, "Could not read EPUB")
+        if not any(pg.paragraphs for ch in epub_chapters for pg in ch.pages):
+            raise HTTPException(400, "EPUB has no readable text")
     else:
         if not raw.startswith(b"%PDF-"):
             raise HTTPException(400, "File is not a valid PDF")
@@ -337,7 +353,8 @@ async def upload_document(
 
     # txt documents are stored as page/paragraph rows for the HTML reader. PDFs
     # are rendered directly by the frontend (PDF.js + on-demand word boxes), so
-    # they need no structural rows.
+    # they need no structural rows. EPUBs add chapter rows and positioned images.
+    page_count = 0
     if pages_data is not None:
         for page_idx, paragraphs in enumerate(pages_data, start=1):
             page = Page(document_id=document.id, page_number=page_idx)
@@ -350,6 +367,46 @@ async def upload_document(
                     paragraph_index=para_idx,
                     text=para_text,
                 ))
+        page_count = len(pages_data)
+    elif epub_chapters is not None:
+        # Pages are numbered globally across chapters so the reader's flat
+        # pagination still works; each page also links to its chapter for the TOC.
+        page_number = 0
+        for chapter_index, chapter in enumerate(epub_chapters):
+            chapter_row = Chapter(
+                document_id=document.id,
+                chapter_index=chapter_index,
+                title=chapter.title,
+            )
+            db.add(chapter_row)
+            db.flush()
+
+            for epub_page in chapter.pages:
+                page_number += 1
+                page = Page(
+                    document_id=document.id,
+                    chapter_id=chapter_row.id,
+                    page_number=page_number,
+                )
+                db.add(page)
+                db.flush()
+
+                for para_idx, para_text in enumerate(epub_page.paragraphs):
+                    db.add(Paragraph(
+                        page_id=page.id,
+                        paragraph_index=para_idx,
+                        text=para_text,
+                    ))
+                for img in epub_page.images:
+                    db.add(EpubImage(
+                        page_id=page.id,
+                        href=img.href,
+                        alt=img.alt,
+                        after_paragraph_index=img.after_paragraph_index,
+                    ))
+        page_count = page_number
+    else:
+        page_count = pdf_page_count
 
     db.commit()
     db.refresh(document)
@@ -357,7 +414,7 @@ async def upload_document(
     return {
         "id": document.id,
         "title": document.title,
-        "page_count": len(pages_data) if pages_data is not None else pdf_page_count,
+        "page_count": page_count,
     }
 
 
@@ -413,6 +470,15 @@ def get_page(
         db.query(Page).filter(Page.document_id == document_id).count()
     )
 
+    # Chapter + images only exist for EPUB pages (chapter_id is set); null/[] otherwise.
+    chapter = db.get(Chapter, page.chapter_id) if page.chapter_id else None
+    images = (
+        db.query(EpubImage)
+        .filter(EpubImage.page_id == page.id)
+        .order_by(EpubImage.after_paragraph_index)
+        .all()
+    )
+
     document.last_page_read = page_number
 
     ml_highlights: list[str] | None = None
@@ -430,7 +496,107 @@ def get_page(
         "total_pages": total_pages,
         "paragraphs": [{"id": p.id, "text": p.text} for p in paragraphs],
         "ml_highlights": ml_highlights,
+        "chapter": (
+            {"index": chapter.chapter_index, "title": chapter.title}
+            if chapter else None
+        ),
+        "images": [
+            {
+                "url": f"/documents/{document_id}/images/{img.href}",
+                "alt": img.alt,
+                "after_paragraph_index": img.after_paragraph_index,
+            }
+            for img in images
+        ],
     }
+
+
+@app.get("/documents/{document_id}/chapters")
+def get_chapters(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Table of contents: chapters in reading order, each with the page number
+    to jump to (its first page). Empty for non-EPUB documents."""
+    document = db.get(Document, document_id)
+    if not document or document.user_id != current_user.id:
+        raise HTTPException(404, "Document not found")
+
+    chapters = (
+        db.query(Chapter)
+        .filter(Chapter.document_id == document_id)
+        .order_by(Chapter.chapter_index)
+        .all()
+    )
+
+    result = []
+    for chapter in chapters:
+        first_page = (
+            db.query(Page.page_number)
+            .filter(Page.chapter_id == chapter.id)
+            .order_by(Page.page_number)
+            .first()
+        )
+        if first_page is None:
+            continue
+        result.append({
+            "index": chapter.chapter_index,
+            "title": chapter.title,
+            "page_number": first_page[0],
+        })
+
+    return {"chapters": result}
+
+
+@app.get("/documents/{document_id}/images/{href:path}")
+def get_document_image(
+    document_id: int,
+    href: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Streams an image straight out of the stored EPUB zip. Only hrefs recorded
+    in epub_images are served, which prevents reading arbitrary zip members or
+    traversing out of the archive."""
+    document = db.get(Document, document_id)
+    if not document or document.user_id != current_user.id:
+        raise HTTPException(404, "Document not found")
+
+    known = (
+        db.query(EpubImage)
+        .join(Page, EpubImage.page_id == Page.id)
+        .filter(Page.document_id == document_id, EpubImage.href == href)
+        .first()
+    )
+    if known is None:
+        raise HTTPException(404, "Image not found")
+
+    path = Path(document.file_path)
+    if not path.exists():
+        raise HTTPException(404, "EPUB file not found on disk")
+
+    try:
+        with zipfile.ZipFile(path) as zf:
+            # Stored hrefs are relative to the OPF; the zip member also carries the
+            # content directory (e.g. "EPUB/"), so resolve it before reading.
+            member = posixpath.normpath(posixpath.join(_epub_content_dir(zf), href))
+            data = zf.read(member)
+    except KeyError:
+        raise HTTPException(404, "Image not found in EPUB")
+
+    media_type = mimetypes.guess_type(href)[0] or "application/octet-stream"
+    return StreamingResponse(io.BytesIO(data), media_type=media_type)
+
+
+def _epub_content_dir(zf: zipfile.ZipFile) -> str:
+    """Directory of the OPF package inside the EPUB zip, which image hrefs are
+    relative to. Read from META-INF/container.xml; '' if the OPF is at the root."""
+    container = zf.read("META-INF/container.xml").decode("utf-8")
+    match = re.search(r'full-path="([^"]+)"', container)
+    if not match:
+        return ""
+    return posixpath.dirname(match.group(1))
 
 @app.get("/documents/{document_id}/pdf")
 def get_document_pdf(

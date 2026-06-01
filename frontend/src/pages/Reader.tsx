@@ -3,6 +3,7 @@ import { useParams, useSearchParams } from "react-router-dom";
 import { api, type Document } from "../api";
 import PdfReader from "./PdfReader";
 import TxtReader from "./TxtReader";
+import EpubReader from "./EpubReader";
 
 // Dispatches to the right reader based on the document's source format. There is
 // no single-document endpoint, so the format comes from the document list.
@@ -40,6 +41,10 @@ export default function Reader() {
   if (doc?.source_format === "pdf") {
     const initialPage = Math.max(1, Number(searchParams.get("page")) || 1);
     return <PdfReader documentId={doc.id} initialPage={initialPage} />;
+  }
+
+  if (doc?.source_format === "epub") {
+    return <EpubReader />;
   }
 
   return <TxtReader />;
