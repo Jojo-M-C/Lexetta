@@ -132,6 +132,11 @@ export default function EpubReader() {
     };
   }, [page]);
 
+  // Start each page at the top instead of wherever the reader left off scrolling.
+  useEffect(() => {
+    window.scrollTo({ top: 0 });
+  }, [currentPage]);
+
   const goToPrev = useCallback(() => {
     setCurrentPage((p) => Math.max(1, p - 1));
   }, []);
