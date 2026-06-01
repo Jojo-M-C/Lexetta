@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
-import { api, type Document } from "../api";
+import { api, type Document } from "../../api";
 import PdfReader from "./PdfReader";
 import TxtReader from "./TxtReader";
 import EpubReader from "./EpubReader";

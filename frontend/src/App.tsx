@@ -5,7 +5,7 @@ import Library from "./pages/Library";
 import Login from "./pages/Login";
 import Profile from "./pages/Profile";
 import Vocabulary from "./pages/Vocabulary";
-import Reader from "./pages/Reader";
+import Reader from "./pages/readers/Reader";
 import Calibration from "./pages/Calibration";
 
 // Requires login only — used for /calibration so it doesn't loop back on itself.

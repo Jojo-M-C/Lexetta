@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
-import { api, type Page } from "../api";
-import { tokenize } from "../lib/tokenize";
-import Token from "../components/Token";
-import WordTooltip from "../components/WordTooltip";
-import PageInput from "../components/PageInput";
+import { api, type Page } from "../../api";
+import { tokenize } from "../../lib/tokenize";
+import Token from "../../components/Token";
+import WordTooltip from "../../components/WordTooltip";
+import PageInput from "../../components/PageInput";
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;

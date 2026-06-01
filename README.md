@@ -1,5 +1,4 @@
 # TODOs
-- EPUB
 
 # Maybe TODOs
 - tougher duplicate detection for vocabulary?
