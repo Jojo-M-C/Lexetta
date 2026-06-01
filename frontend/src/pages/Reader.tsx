@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { api, type Document } from "../api";
-import PdfReader from "../components/PdfReader";
+import PdfReader from "./PdfReader";
 import TxtReader from "./TxtReader";
 
 // Dispatches to the right reader based on the document's source format. There is
