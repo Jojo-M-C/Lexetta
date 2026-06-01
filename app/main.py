@@ -480,7 +480,7 @@ def get_document_page_text(
     with pdfplumber.open(path) as pdf:
         if page_number < 1 or page_number > len(pdf.pages):
             raise HTTPException(404, "Page not found")
-        text = pdf.pages[page_number - 1].extract_text() or ""
+        text = pdf.pages[page_number - 1].extract_text(x_tolerance=_PDF_WORD_X_TOLERANCE) or ""
 
     return {"page": page_number, "text": text}
 
@@ -520,7 +520,7 @@ def get_document_page_words(
             }
             for w in page.extract_words(x_tolerance=_PDF_WORD_X_TOLERANCE)
         ]
-        text = page.extract_text() or ""
+        text = page.extract_text(x_tolerance=_PDF_WORD_X_TOLERANCE) or ""
 
     # Remember the reading position, mirroring the txt reader's get_page. The
     # PDF reader fetches this endpoint on every page change, so it's the natural
@@ -626,7 +626,9 @@ def create_lookup(
         if not document or document.user_id != current_user.id:
             raise HTTPException(404, "Document not found")
         sentence = find_sentence(payload.page_text, payload.word)
-        clicked_context = payload.page_text
+        # PDFs have no paragraph rows; store the sentence (not the whole page) so
+        # the context stays bounded, like the txt reader's paragraph snapshot.
+        clicked_context = sentence
         page_number = payload.page_number
 
     # Reuse a cached translation when one exists, keyed by document + page + word.
