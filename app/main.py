@@ -1,6 +1,7 @@
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from app.lib.difficulty import difficult_words, difficult_words_ml
 from app.database import get_db, SessionLocal
@@ -78,6 +79,66 @@ def _persist_highlighted_words(
             mode=mode,
         ))
 
+def _store_prefetched_translation(
+    db: Session,
+    user_id: int,
+    document_id: int,
+    page_number: int,
+    word: str,
+    sentence: str,
+    mode: str,
+) -> None:
+    """Translate `word` (in `sentence`) and cache it on the
+    (user, document, page, word) HighlightedWord row, creating the row if needed.
+
+    Uses INSERT ... ON CONFLICT so a concurrent prefetch of the same word — e.g.
+    navigating back to a page before its first prefetch finished — fills in the
+    translation instead of colliding on the unique constraint.
+    """
+    word_lower = word.lower()
+
+    existing = (
+        db.query(HighlightedWord)
+        .filter(
+            HighlightedWord.user_id == user_id,
+            HighlightedWord.document_id == document_id,
+            HighlightedWord.page_number == page_number,
+            HighlightedWord.word == word_lower,
+        )
+        .first()
+    )
+    if existing and existing.translation_target:
+        return  # already cached — no need to call the translator again
+
+    translation: str | None = None
+    try:
+        result = get_translator().translate(word, context=sentence)
+        if result:
+            translation = result.target
+    except Exception as e:
+        print(f"Prefetch translation error for '{word}': {e}")
+
+    stmt = (
+        pg_insert(HighlightedWord)
+        .values(
+            user_id=user_id,
+            document_id=document_id,
+            page_number=page_number,
+            word=word_lower,
+            context=sentence,
+            mode=mode,
+            translation_target=translation,
+        )
+        .on_conflict_do_update(
+            constraint="uq_highlighted_user_doc_page_word",
+            set_={"translation_target": translation},
+            where=HighlightedWord.translation_target.is_(None),
+        )
+    )
+    db.execute(stmt)
+    db.commit()
+
+
 def _prefetch_translation(paragraph_id: int, word: str, user_id: int, mode: str) -> None:
     db = SessionLocal()
     try:
@@ -91,42 +152,10 @@ def _prefetch_translation(paragraph_id: int, word: str, user_id: int, mode: str)
         if not document or document.user_id != user_id:
             return
 
-        word_lower = word.lower()
-        highlighted = (
-            db.query(HighlightedWord)
-            .filter(
-                HighlightedWord.user_id == user_id,
-                HighlightedWord.document_id == document.id,
-                HighlightedWord.page_number == page.page_number,
-                HighlightedWord.word == word_lower,
-            )
-            .first()
-        )
-
-        if highlighted and highlighted.translation_target:
-            return
-
         sentence = find_sentence(paragraph.text, word)
-
-        if not highlighted:
-            highlighted = HighlightedWord(
-                user_id=user_id,
-                document_id=document.id,
-                page_number=page.page_number,
-                word=word_lower,
-                context=sentence,
-                mode=mode,
-            )
-            db.add(highlighted)
-
-        try:
-            result = get_translator().translate(word, context=sentence)
-            if result:
-                highlighted.translation_target = result.target
-        except Exception as e:
-            print(f"Prefetch translation error for '{word}': {e}")
-
-        db.commit()
+        _store_prefetched_translation(
+            db, user_id, document.id, page.page_number, word, sentence, mode
+        )
     except Exception as e:
         print(f"Prefetch task error: {e}")
     finally:
@@ -149,42 +178,10 @@ def _prefetch_translation_pdf(
         if not document or document.user_id != user_id:
             return
 
-        word_lower = word.lower()
-        highlighted = (
-            db.query(HighlightedWord)
-            .filter(
-                HighlightedWord.user_id == user_id,
-                HighlightedWord.document_id == document_id,
-                HighlightedWord.page_number == page_number,
-                HighlightedWord.word == word_lower,
-            )
-            .first()
-        )
-
-        if highlighted and highlighted.translation_target:
-            return
-
         sentence = find_sentence(page_text, word)
-
-        if not highlighted:
-            highlighted = HighlightedWord(
-                user_id=user_id,
-                document_id=document_id,
-                page_number=page_number,
-                word=word_lower,
-                context=sentence,
-                mode=mode,
-            )
-            db.add(highlighted)
-
-        try:
-            result = get_translator().translate(word, context=sentence)
-            if result:
-                highlighted.translation_target = result.target
-        except Exception as e:
-            print(f"PDF prefetch translation error for '{word}': {e}")
-
-        db.commit()
+        _store_prefetched_translation(
+            db, user_id, document_id, page_number, word, sentence, mode
+        )
     except Exception as e:
         print(f"PDF prefetch task error: {e}")
     finally:
@@ -524,6 +521,12 @@ def get_document_page_words(
             for w in page.extract_words(x_tolerance=_PDF_WORD_X_TOLERANCE)
         ]
         text = page.extract_text() or ""
+
+    # Remember the reading position, mirroring the txt reader's get_page. The
+    # PDF reader fetches this endpoint on every page change, so it's the natural
+    # place to persist progress (the Library link reopens at last_page_read).
+    document.last_page_read = page_number
+    db.commit()
 
     return {
         "page": page_number,

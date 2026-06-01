@@ -1,5 +1,5 @@
 # TODOs
-no major todos rn
+- MD, EPUB
 
 # Maybe TODOs
 - tougher duplicate detection for vocabulary?
