@@ -13,6 +13,7 @@ import { api, type Chapter, type Page } from "../api";
 import { tokenize } from "../lib/tokenize";
 import Token from "../components/Token";
 import WordTooltip from "../components/WordTooltip";
+import PageInput from "../components/PageInput";
 
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 3;
@@ -148,12 +149,15 @@ export default function EpubReader() {
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowLeft") goToPrev();
-      if (e.key === "ArrowRight") goToNext();
       if (e.key === "Escape") {
         closeTooltip();
         setTocOpen(false);
       }
+      // Don't hijack arrow keys while the user is typing in the page-jump field.
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
+      if (e.key === "ArrowLeft") goToPrev();
+      if (e.key === "ArrowRight") goToNext();
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
@@ -296,9 +300,17 @@ export default function EpubReader() {
           <p className="text-center truncate max-w-[12rem]">
             {page?.chapter?.title ?? "Progress"}
           </p>
-          <p className="font-semibold text-gray-900 normal-case text-center">
-            Page {page?.page_number ?? "—"} of {page?.total_pages ?? "—"}
-          </p>
+          <div className="font-semibold text-gray-900 normal-case text-center">
+            {page ? (
+              <PageInput
+                currentPage={currentPage}
+                totalPages={page.total_pages}
+                onJump={setCurrentPage}
+              />
+            ) : (
+              <span>Page — of —</span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
