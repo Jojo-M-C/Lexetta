@@ -33,6 +33,8 @@ const ZOOM_STEP = 0.25;
 // Fit-to-width target at 100% zoom (Tailwind max-w-4xl), and horizontal padding.
 const MAX_WIDTH = 896;
 const PAGE_PADDING = 32;
+// How long the cursor must rest on a word before its translation is fetched.
+const HOVER_DELAY_MS = 500;
 
 export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProps) {
   const navigate = useNavigate();
@@ -62,17 +64,24 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const renderTaskRef = useRef<RenderTask | null>(null);
   // Extracted text of the current page, used as translation context. Held in a
-  // ref so the click handler always reads the latest without re-binding.
+  // ref so the lookup always reads the latest without re-binding.
   const pageTextRef = useRef("");
+  // Pending hover-intent timer; only one word can be hovered at a time.
+  const hoverTimerRef = useRef<number | null>(null);
 
-  // Look up a clicked word and show its translation in the tooltip.
-  const handleWordClick = async (
-    e: React.MouseEvent<HTMLElement>,
+  const cancelHoverTimer = () => {
+    if (hoverTimerRef.current !== null) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  };
+
+  // Look up a word and show its translation in the tooltip.
+  const runLookup = async (
+    anchor: HTMLElement,
     word: string,
     wasHighlighted: boolean
   ) => {
-    e.stopPropagation();
-    const anchor = e.currentTarget;
     setTooltip({ anchor, translation: null, loading: true });
     try {
       const result = await api.logLookup({
@@ -94,6 +103,26 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
       );
     }
   };
+
+  const handleWordEnter = (
+    e: React.MouseEvent<HTMLElement>,
+    word: string,
+    wasHighlighted: boolean
+  ) => {
+    const anchor = e.currentTarget;
+    cancelHoverTimer();
+    hoverTimerRef.current = window.setTimeout(() => {
+      runLookup(anchor, word, wasHighlighted);
+    }, HOVER_DELAY_MS);
+  };
+
+  const handleWordLeave = () => {
+    cancelHoverTimer();
+    setTooltip(null);
+  };
+
+  // Clear any pending hover timer when the reader unmounts.
+  useEffect(() => cancelHoverTimer, []);
 
   // Load the PDF document once.
   useEffect(() => {
@@ -246,6 +275,7 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
 
   const goToPage = (page: number) => {
     if (page < 1 || (totalPages && page > totalPages)) return;
+    cancelHoverTimer();
     setTooltip(null);
     setCurrentPage(page);
   };
@@ -292,8 +322,9 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
         <div className="min-w-fit flex justify-center px-4">
           <div className="relative w-fit">
             <canvas ref={canvasRef} className="block shadow-md rounded" />
-            {/* Click overlay: every word is clickable for translation; difficult
-                words also get the orange highlight, others a subtle hover. */}
+            {/* Hover overlay: resting on a word for 500ms fetches its
+                translation; difficult words also get the orange highlight,
+                others a subtle hover. */}
             <div className="absolute inset-0 pointer-events-none">
               {scale > 0 &&
                 words.map((w, i) => {
@@ -301,9 +332,10 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
                   return (
                     <button
                       key={i}
-                      onClick={(e) => handleWordClick(e, w.text, isDifficult)}
+                      onMouseEnter={(e) => handleWordEnter(e, w.text, isDifficult)}
+                      onMouseLeave={handleWordLeave}
                       className={
-                        "absolute rounded-sm cursor-pointer pointer-events-auto transition-colors " +
+                        "absolute rounded-sm cursor-default pointer-events-auto transition-colors " +
                         (isDifficult
                           ? // mix-blend-multiply puts the highlight behind the
                             // text: it tints the white page but leaves the black

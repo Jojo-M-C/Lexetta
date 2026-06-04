@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -46,6 +46,9 @@ export default function EpubReader() {
   const [activeAnchor, setActiveAnchor] = useState<HTMLElement | null>(null);
   const [activeTranslation, setActiveTranslation] = useState<string | null>(null);
   const [translationLoading, setTranslationLoading] = useState(false);
+  // Mirrors activeAnchor synchronously so an in-flight lookup can tell whether
+  // the cursor has already moved off the word it was fetched for.
+  const activeAnchorRef = useRef<HTMLElement | null>(null);
 
   // User zoom, a multiplier on the base text size (1 = default reading size).
   const [zoom, setZoom] = useState(1);
@@ -132,9 +135,12 @@ export default function EpubReader() {
     };
   }, [page]);
 
-  // Start each page at the top instead of wherever the reader left off scrolling.
+  // Start each page at the top instead of wherever the reader left off scrolling,
+  // and drop any tooltip left over from the previous page.
   useEffect(() => {
     window.scrollTo({ top: 0 });
+    closeTooltip();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage]);
 
   const goToPrev = useCallback(() => {
@@ -147,6 +153,7 @@ export default function EpubReader() {
   }, [page]);
 
   const closeTooltip = () => {
+    activeAnchorRef.current = null;
     setActiveAnchor(null);
     setActiveTranslation(null);
     setTranslationLoading(false);
@@ -171,12 +178,13 @@ export default function EpubReader() {
   const canGoPrev = currentPage > 1;
   const canGoNext = page ? currentPage < page.total_pages : false;
 
-  const handleWordClick = async (
+  const handleWordHover = async (
     word: string,
     paragraphId: number,
     wasHighlighted: boolean,
     anchor: HTMLElement
   ) => {
+    activeAnchorRef.current = anchor;
     setActiveAnchor(anchor);
     setActiveTranslation(null);
     setTranslationLoading(true);
@@ -187,11 +195,14 @@ export default function EpubReader() {
         word,
         was_highlighted: wasHighlighted,
       });
+      // The cursor may have moved to another word (or off the page) while the
+      // translation was in flight; only apply it if this word is still active.
+      if (activeAnchorRef.current !== anchor) return;
       setActiveTranslation(result.translation?.target ?? null);
+      setTranslationLoading(false);
     } catch (e) {
       console.error("lookup failed:", e);
-    } finally {
-      setTranslationLoading(false);
+      if (activeAnchorRef.current === anchor) setTranslationLoading(false);
     }
   };
 
@@ -263,7 +274,8 @@ export default function EpubReader() {
                           token={tok}
                           paragraphId={p.id}
                           difficultWords={difficultWords}
-                          onWordClick={handleWordClick}
+                          onWordHover={handleWordHover}
+                          onWordLeave={closeTooltip}
                         />
                       ))}
                     </p>
