@@ -1,5 +1,6 @@
 import threading
 import torch
+from wordfreq import zipf_frequency
 from lexetta_lcp.CompLexPerAnnotator.model import load_trained
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,20 @@ from app.models import (
 )
 
 LEVEL_ORDER = {"A1": 1, "A2": 2, "B1": 3, "B2": 4, "C1": 5, "C2": 6}
+BASIC_WORD_THRESHOLD = 6 # only do ml predictions for words with lower than threshold frequency. all other words are instantly marked as simple (complexity 0) to safe compute
+
+
+
+def is_frequent_word(word: str, threshold: float) -> bool:
+    """
+    Return True if `word`'s Zipf frequency is strictly higher than `threshold`.
+
+    Frequency comes from the `wordfreq` package, whose English wordlist is
+    built from SUBTLEX (among other sources). The Zipf scale runs ~1–7 on a
+    log scale: ~3 is rare, ~6 is very common (e.g. "the" ≈ 7.7). Unknown words
+    score 0.0.
+    """
+    return zipf_frequency(word.lower(), "en") > threshold
 _load_lock = threading.Lock()
 _predict_lock = threading.Lock()
 _LCP_MODEL = None # stores (model, tokenizer)
@@ -129,14 +144,28 @@ def difficult_words_ml(
 
     from lexetta_lcp.CompLexPerAnnotator.model import predict_batch
 
-    model, tokenizer = _load_lcp_model()
-    histories = [_get_user_history(user, db)] * len(tokens)
-    with _predict_lock:
-        preds = predict_batch(model, tokenizer, sentences, tokens, histories)
-    preds = list(zip(tokens, preds))
+    # only run the ML model on rare words; frequent words are instantly "easy"
+    ml_indices = [i for i, t in enumerate(tokens) if not is_frequent_word(t, BASIC_WORD_THRESHOLD)]
 
-    res = {token
-        for token, score in preds
-        if score >= ML_DIFFICULTY_THRESHOLD
+    # do ml prediction for the remaining words, keyed by their original token index
+    ml_words = [tokens[i] for i in ml_indices]
+    ml_sentences = [sentences[i] for i in ml_indices]
+
+    ml_preds = {}
+    if ml_words:
+        model, tokenizer = _load_lcp_model()
+        histories = [_get_user_history(user, db)] * len(ml_words)
+        with _predict_lock:
+            preds_list = predict_batch(model, tokenizer, ml_sentences, ml_words, histories)
+        ml_preds = dict(zip(ml_indices, preds_list))
+
+    # the result list contains the prediction for each input token. if there is no ml prediction
+    # the word was basic and therefore is assigned a complexity of 0
+    scores = [ml_preds.get(i, 0) for i in range(len(tokens))]
+
+    # TODO: it is better to return the scores as they are because the same token can be complex in a different context
+    res = {tokens[i]
+        for i, s in enumerate(scores)
+        if s >= ML_DIFFICULTY_THRESHOLD
     }
     return res

@@ -32,3 +32,7 @@ spacy
 
 # openai: official OpenAI SDK for calling GPT models
 openai
+
+# wordfreq: word frequency data (English list built from SUBTLEX among
+# other corpora). Used to gauge how common/rare a word is.
+wordfreq
