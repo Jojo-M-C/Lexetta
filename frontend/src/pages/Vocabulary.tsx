@@ -1,13 +1,17 @@
 import { useEffect, useState } from "react";
 import { api, type VocabularyCard } from "../api";
-import { Download, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Trash2 } from "lucide-react";
 import ConfirmDialog from "../components/ConfirmDialog";
+import PageInput from "../components/PageInput";
+
+const PER_PAGE = 10;
 
 export default function Vocabulary() {
   const [cards, setCards] = useState<VocabularyCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   const [cardToDelete, setCardToDelete] = useState<VocabularyCard | null>(null);
 
   const confirmDelete = async () => {
@@ -35,6 +39,20 @@ export default function Vocabulary() {
         c.word.toLowerCase().includes(search.toLowerCase())
       )
     : cards;
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+
+  // Reset to the first page when the search term changes.
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  // Keep the page in range as the filtered list shrinks (e.g. after a delete).
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const visible = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -79,7 +97,7 @@ export default function Vocabulary() {
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map((card) => (
+          {visible.map((card) => (
             <div
               key={card.id}
               className="relative group bg-white rounded-lg shadow-sm border border-gray-200 grid grid-cols-2 divide-x divide-gray-200"
@@ -116,6 +134,32 @@ export default function Vocabulary() {
               </div>
             </div>
           ))}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-4 text-sm text-gray-600">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                aria-label="Previous page"
+                className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <PageInput
+                currentPage={page}
+                totalPages={totalPages}
+                onJump={setPage}
+              />
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                aria-label="Next page"
+                className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
         </div>
       )}
 
