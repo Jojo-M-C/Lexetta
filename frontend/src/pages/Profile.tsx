@@ -27,6 +27,20 @@ export default function Profile() {
     }
   };
 
+  const handleToggleHighlighting = async () => {
+    if (!user) return;
+    const next = !user.highlighting_enabled;
+    setSaving(true);
+    try {
+      const updated = await api.updateMe({ highlighting_enabled: next });
+      updateUser({ highlighting_enabled: updated.highlighting_enabled });
+    } catch (e) {
+      console.error("Failed to update settings:", e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="max-w-2xl mx-auto">
       <h1 className="text-3xl font-bold mb-8">Profile</h1>
@@ -63,6 +77,32 @@ export default function Profile() {
               <span
                 className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
                   user?.use_ml_predictions ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between pt-2">
+            <div>
+              <p className="font-medium">Proactive Highlighting</p>
+              <p className="text-sm text-gray-500">
+                {user?.highlighting_enabled
+                  ? "Difficult words are highlighted automatically"
+                  : "Words are not highlighted; click any word to look it up"}
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={user?.highlighting_enabled ?? false}
+              disabled={saving}
+              onClick={handleToggleHighlighting}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none disabled:opacity-50 ${
+                user?.highlighting_enabled ? "bg-blue-600" : "bg-gray-200"
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${
+                  user?.highlighting_enabled ? "translate-x-6" : "translate-x-1"
                 }`}
               />
             </button>

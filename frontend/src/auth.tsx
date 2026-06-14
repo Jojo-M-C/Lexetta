@@ -6,6 +6,7 @@ interface User {
   username: string;
   reading_level: string | null;
   use_ml_predictions: boolean;
+  highlighting_enabled: boolean;
   calibration_done: boolean;
 }
 

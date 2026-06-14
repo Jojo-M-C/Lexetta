@@ -54,6 +54,7 @@ export interface User {
   username: string;
   reading_level: string | null;
   use_ml_predictions: boolean;
+  highlighting_enabled: boolean;
   calibration_done: boolean;
 }
 
@@ -128,7 +129,10 @@ export interface VocabularyCard {
 export const api = {
   listUsers: () => request<User[]>("/users"),
   me: () => request<User>("/me"),
-  updateMe: (settings: { use_ml_predictions: boolean }) =>
+  updateMe: (settings: {
+    use_ml_predictions?: boolean;
+    highlighting_enabled?: boolean;
+  }) =>
     request<User>("/users/me", {
       method: "PATCH",
       body: JSON.stringify(settings),

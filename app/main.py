@@ -228,7 +228,8 @@ def me(current_user: User = Depends(get_current_user)):
     return current_user
 
 class UserSettingsUpdate(BaseModel):
-    use_ml_predictions: bool
+    use_ml_predictions: bool | None = None
+    highlighting_enabled: bool | None = None
 
 @app.patch("/users/me")
 def update_me(
@@ -236,7 +237,10 @@ def update_me(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    current_user.use_ml_predictions = payload.use_ml_predictions
+    if payload.use_ml_predictions is not None:
+        current_user.use_ml_predictions = payload.use_ml_predictions
+    if payload.highlighting_enabled is not None:
+        current_user.highlighting_enabled = payload.highlighting_enabled
     db.commit()
     db.refresh(current_user)
     return current_user
@@ -482,7 +486,7 @@ def get_page(
     document.last_page_read = page_number
 
     ml_highlights: list[str] | None = None
-    if current_user.use_ml_predictions:
+    if current_user.use_ml_predictions and current_user.highlighting_enabled:
         ml_set = difficult_words_ml(_extract_words(paragraphs), current_user, db) or set()
         ml_highlights = sorted(ml_set)
         _persist_highlighted_words(db, current_user, document_id, page_number, ml_set, paragraphs, mode="ml")
@@ -934,6 +938,10 @@ def get_difficulty(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # When the user has turned proactive highlighting off, nothing is flagged
+    # difficult — they can still click any word to look it up.
+    if not current_user.highlighting_enabled:
+        return {"difficult": []}
     difficult = difficult_words(payload.words, current_user, db)
     return {"difficult": sorted(difficult)}
 @app.get("/vocabulary/export")

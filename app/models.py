@@ -12,6 +12,7 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now())
     reading_level: Mapped[str | None] = mapped_column(String(2), nullable=True) # we trust that only correct values will be passed like A1, etc.
     use_ml_predictions: Mapped[bool] = mapped_column(default=False, server_default="false")
+    highlighting_enabled: Mapped[bool] = mapped_column(default=True, server_default="true")
     calibration_done: Mapped[bool] = mapped_column(default=False, server_default="false")
 
 class Document(Base):
