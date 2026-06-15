@@ -1,3 +1,4 @@
+import re
 import spacy
 
 _nlp = None
@@ -10,20 +11,56 @@ def _get_nlp():
     return _nlp
 
 
+def _letters(s: str) -> str:
+    """Lowercase, letters only. Lets matching survive punctuation and the
+    inconsistent word spacing that PDF text extraction sometimes produces."""
+    return re.sub(r"[^a-z]", "", s.lower())
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split `text` into sentences, dropping blanks. Used to build the parallel
+    sentence/token lists the per-token ML complexity model expects."""
+    doc = _get_nlp()(text)
+    return [s for sent in doc.sents if (s := sent.text.strip())]
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split `text` into sentences, dropping blanks. Used to build the parallel
+    sentence/token lists the per-token ML complexity model expects."""
+    doc = _get_nlp()(text)
+    return [s for sent in doc.sents if (s := sent.text.strip())]
+
+
 def find_sentence(text: str, word: str) -> str:
     """
-    Find the sentence within `text` that contains `word`.
-    Returns the matching sentence, or the full text if no sentence found.
+    Return the sentence within `text` that contains `word`.
+
+    If the word can't be located we deliberately return just the word, never the
+    whole text: a clicked word should only ever pull its own sentence into a
+    vocabulary card. (PDF page text is the entire page, so the old "return the
+    full text" fallback dumped the whole page.)
     """
+    word_lower = word.lower()
+    target = _letters(word)
+    if not target:
+        return word.strip()
+
     nlp = _get_nlp()
     doc = nlp(text)
 
-    word_lower = word.lower()
+    fuzzy_match: str | None = None
     for sent in doc.sents:
-        # Match against any token's lowercased form for case-insensitive matching
-        if any(t.text.lower() == word_lower for t in sent):
+        # Precise: an exact token match (well-tokenised text, e.g. the txt reader).
+        if any(tok.text.lower() == word_lower for tok in sent):
             return sent.text.strip()
+        # Fallback: a letters-only substring match handles punctuation and the
+        # spacing quirks of PDF text where the word isn't its own token. Keep the
+        # first such sentence, but an exact match anywhere still wins over it.
+        if fuzzy_match is None and target in _letters(sent.text):
+            fuzzy_match = sent.text.strip()
 
-    # Fallback: return the full text. This shouldn't happen in practice but
-    # protects against edge cases (word not found, segmentation issues).
-    return text.strip()
+    if fuzzy_match is not None:
+        return fuzzy_match
+
+    # Word not found at all — add the word only, never the whole text.
+    return word.strip()

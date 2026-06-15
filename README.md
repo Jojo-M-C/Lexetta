@@ -1,5 +1,4 @@
 # TODOs
-no major todos rn
 
 # Maybe TODOs
 - tougher duplicate detection for vocabulary?

@@ -1,12 +1,30 @@
 import { useEffect, useState } from "react";
 import { api, type VocabularyCard } from "../api";
-import { Download } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Trash2 } from "lucide-react";
+import ConfirmDialog from "../components/ConfirmDialog";
+import PageInput from "../components/PageInput";
+
+const PER_PAGE = 10;
 
 export default function Vocabulary() {
   const [cards, setCards] = useState<VocabularyCard[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [cardToDelete, setCardToDelete] = useState<VocabularyCard | null>(null);
+
+  const confirmDelete = async () => {
+    if (!cardToDelete) return;
+    const id = cardToDelete.id;
+    setCardToDelete(null);
+    try {
+      await api.deleteVocabulary(id);
+      setCards((cs) => cs.filter((c) => c.id !== id));
+    } catch (err) {
+      alert(`Delete failed: ${err instanceof Error ? err.message : err}`);
+    }
+  };
 
   useEffect(() => {
     api
@@ -21,6 +39,20 @@ export default function Vocabulary() {
         c.word.toLowerCase().includes(search.toLowerCase())
       )
     : cards;
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER_PAGE));
+
+  // Reset to the first page when the search term changes.
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  // Keep the page in range as the filtered list shrinks (e.g. after a delete).
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
+
+  const visible = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   return (
     <div className="max-w-6xl mx-auto">
@@ -65,11 +97,20 @@ export default function Vocabulary() {
         </div>
       ) : (
         <div className="space-y-3">
-          {filtered.map((card) => (
+          {visible.map((card) => (
             <div
               key={card.id}
-              className="bg-white rounded-lg shadow-sm border border-gray-200 grid grid-cols-2 divide-x divide-gray-200"
+              className="relative group bg-white rounded-lg shadow-sm border border-gray-200 grid grid-cols-2 divide-x divide-gray-200"
             >
+              <button
+                onClick={() => setCardToDelete(card)}
+                className="absolute top-2 right-2 z-10 p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md opacity-0 group-hover:opacity-100 transition"
+                aria-label={`Delete ${card.word}`}
+                title="Delete card"
+              >
+                <Trash2 size={16} />
+              </button>
+
               {/* Front: word + context */}
               <div className="p-5">
                 <h3 className="font-bold text-lg mb-2">{card.word}</h3>
@@ -93,8 +134,48 @@ export default function Vocabulary() {
               </div>
             </div>
           ))}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-2 pt-4 text-sm text-gray-600">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+                aria-label="Previous page"
+                className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <PageInput
+                currentPage={page}
+                totalPages={totalPages}
+                onJump={setPage}
+              />
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                aria-label="Next page"
+                className="w-9 h-9 rounded-full hover:bg-gray-100 flex items-center justify-center disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={cardToDelete !== null}
+        title="Delete card?"
+        message={
+          cardToDelete
+            ? `"${cardToDelete.word}" will be permanently deleted. This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete"
+        destructive
+        onConfirm={confirmDelete}
+        onCancel={() => setCardToDelete(null)}
+      />
     </div>
   );
 }

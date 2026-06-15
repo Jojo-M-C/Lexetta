@@ -45,7 +45,7 @@ export default function UploadButton({ onUploaded }: Props) {
       <input
         ref={inputRef}
         type="file"
-        accept=".txt"
+        accept=".txt,.pdf,.epub"
         onChange={handleChange}
         className="hidden"
       />

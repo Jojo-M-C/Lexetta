@@ -24,13 +24,15 @@ export default function Login() {
     const user = users.find((u) => u.id === selectedId);
     if (!user) return;
     login(user);
-    navigate("/library");
+    if (!user.target_language) navigate("/language");
+    else if (!user.calibration_done) navigate("/calibration");
+    else navigate("/library");
   };
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="bg-white rounded-lg shadow p-8 w-96">
-        <h1 className="text-2xl font-bold mb-6">Lexetta</h1>
+        <h1 className="text-2xl font-bold mb-6">Glossara</h1>
 
         {error && (
           <div className="bg-red-50 text-red-700 p-3 rounded mb-4 text-sm">

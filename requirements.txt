@@ -33,6 +33,18 @@ spacy
 # openai: official OpenAI SDK for calling GPT models
 openai
 
+# pdfplumber: text extraction from PDF pages, used to build the
+# sentence context for translation lookups in the PDF reader.
+pdfplumber
+
+# ebooklib: reads the EPUB container (spine reading order, manifest,
+# table of contents) so chapters and images can be extracted on upload.
+ebooklib
+
+# beautifulsoup4: strips each chapter's XHTML down to block-level text
+# and locates inline <img> references during EPUB parsing.
+beautifulsoup4
+
 # wordfreq: word frequency data (English list built from SUBTLEX among
 # other corpora). Used to gauge how common/rare a word is.
 wordfreq
