@@ -82,7 +82,14 @@ def _load_lcp_model():
         if _LCP_MODEL is not None:
             return _LCP_MODEL
 
-        model, tokenizer = load_trained(settings.lcp_model_dir)
+        # Treat empty strings (e.g. `LCP_MODEL_REVISION=` left blank in .env) as
+        # unset, so load_trained falls back to its defaults instead of passing
+        # an empty token/revision to the Hub.
+        model, tokenizer = load_trained(
+            settings.lcp_model_dir,
+            token=settings.lcp_model_token or None,
+            revision=settings.lcp_model_revision or None,
+        )
         if torch.cuda.is_available():
             model = model.to("cuda")
         _LCP_MODEL = model, tokenizer
