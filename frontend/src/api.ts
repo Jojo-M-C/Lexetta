@@ -53,9 +53,15 @@ export interface User {
   id: number;
   username: string;
   reading_level: string | null;
+  target_language: string | null;
   use_ml_predictions: boolean;
   highlighting_enabled: boolean;
   calibration_done: boolean;
+}
+
+export interface Language {
+  code: string;
+  name: string;
 }
 
 export interface CalibrationItem {
@@ -128,6 +134,12 @@ export interface VocabularyCard {
 
 export const api = {
   listUsers: () => request<User[]>("/users"),
+  listLanguages: () => request<Language[]>("/languages"),
+  setLanguage: (target_language: string) =>
+    request<User>("/users/me/language", {
+      method: "POST",
+      body: JSON.stringify({ target_language }),
+    }),
   me: () => request<User>("/me"),
   updateMe: (settings: {
     use_ml_predictions?: boolean;

@@ -5,6 +5,7 @@ interface User {
   id: number;
   username: string;
   reading_level: string | null;
+  target_language: string | null;
   use_ml_predictions: boolean;
   highlighting_enabled: boolean;
   calibration_done: boolean;

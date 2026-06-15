@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { api } from "../api";
@@ -7,6 +7,18 @@ export default function Profile() {
   const { user, logout, updateUser } = useAuth();
   const navigate = useNavigate();
   const [saving, setSaving] = useState(false);
+  const [languageName, setLanguageName] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!user?.target_language) return;
+    api
+      .listLanguages()
+      .then((langs) => {
+        const match = langs.find((l) => l.code === user.target_language);
+        setLanguageName(match?.name ?? user.target_language);
+      })
+      .catch(() => setLanguageName(user.target_language));
+  }, [user?.target_language]);
 
   const handleLogout = () => {
     logout();
@@ -54,6 +66,12 @@ export default function Profile() {
           <div>
             <label className="text-sm text-gray-500">Reading Level</label>
             <p className="font-medium">{user?.reading_level ?? "Not set"}</p>
+          </div>
+          <div>
+            <label className="text-sm text-gray-500">Translation Language</label>
+            <p className="font-medium">
+              {languageName ?? user?.target_language ?? "Not set"}
+            </p>
           </div>
 
           <div className="flex items-center justify-between pt-2">

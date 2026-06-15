@@ -7,18 +7,21 @@ import Profile from "./pages/Profile";
 import Vocabulary from "./pages/Vocabulary";
 import Reader from "./pages/readers/Reader";
 import Calibration from "./pages/Calibration";
+import LanguageSelect from "./pages/LanguageSelect";
 
-// Requires login only — used for /calibration so it doesn't loop back on itself.
+// Requires login only — used for /language and /calibration so they don't loop
+// back on themselves.
 function AuthRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 
-// Requires login + completed calibration.
+// Requires login + completed onboarding (language chosen, then calibration done).
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
+  if (!user.target_language) return <Navigate to="/language" replace />;
   if (!user.calibration_done) return <Navigate to="/calibration" replace />;
   return <>{children}</>;
 }
@@ -28,6 +31,15 @@ export default function App() {
     <AuthProvider>
       <Routes>
         <Route path="/login" element={<Login />} />
+
+        <Route
+          path="/language"
+          element={
+            <AuthRoute>
+              <LanguageSelect />
+            </AuthRoute>
+          }
+        />
 
         <Route
           path="/calibration"

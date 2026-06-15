@@ -18,6 +18,7 @@ import zipfile
 import mimetypes
 import posixpath
 from app.lib.translators.factory import get_translator
+from app.lib.languages import TARGET_LANGUAGES, DEFAULT_LANGUAGE
 from app.lib.sentences import find_sentence
 import csv
 import io
@@ -91,6 +92,7 @@ def _store_prefetched_translation(
     word: str,
     sentence: str,
     mode: str,
+    target_language: str,
 ) -> None:
     """Translate `word` (in `sentence`) and cache it on the
     (user, document, page, word) HighlightedWord row, creating the row if needed.
@@ -116,7 +118,7 @@ def _store_prefetched_translation(
 
     translation: str | None = None
     try:
-        result = get_translator().translate(word, context=sentence)
+        result = get_translator().translate(word, context=sentence, target_lang=target_language)
         if result:
             translation = result.target
     except Exception as e:
@@ -143,7 +145,7 @@ def _store_prefetched_translation(
     db.commit()
 
 
-def _prefetch_translation(paragraph_id: int, word: str, user_id: int, mode: str) -> None:
+def _prefetch_translation(paragraph_id: int, word: str, user_id: int, mode: str, target_language: str) -> None:
     db = SessionLocal()
     try:
         paragraph = db.get(Paragraph, paragraph_id)
@@ -158,7 +160,7 @@ def _prefetch_translation(paragraph_id: int, word: str, user_id: int, mode: str)
 
         sentence = find_sentence(paragraph.text, word)
         _store_prefetched_translation(
-            db, user_id, document.id, page.page_number, word, sentence, mode
+            db, user_id, document.id, page.page_number, word, sentence, mode, target_language
         )
     except Exception as e:
         print(f"Prefetch task error: {e}")
@@ -173,6 +175,7 @@ def _prefetch_translation_pdf(
     page_text: str,
     user_id: int,
     mode: str,
+    target_language: str,
 ) -> None:
     # PDF counterpart to _prefetch_translation: PDFs have no paragraph rows, so
     # the page text comes from the client (already extracted) rather than the DB.
@@ -184,7 +187,7 @@ def _prefetch_translation_pdf(
 
         sentence = find_sentence(page_text, word)
         _store_prefetched_translation(
-            db, user_id, document_id, page_number, word, sentence, mode
+            db, user_id, document_id, page_number, word, sentence, mode, target_language
         )
     except Exception as e:
         print(f"PDF prefetch task error: {e}")
@@ -223,6 +226,15 @@ def list_users(db: Session = Depends(get_db)):
     return db.query(User).order_by(User.id).all()
 
 
+@app.get("/languages")
+def list_languages():
+    # Public: feeds the onboarding language dropdown. Sorted by display name.
+    return [
+        {"code": code, "name": name}
+        for code, name in sorted(TARGET_LANGUAGES.items(), key=lambda kv: kv[1])
+    ]
+
+
 @app.get("/me")
 def me(current_user: User = Depends(get_current_user)):
     return current_user
@@ -241,6 +253,27 @@ def update_me(
         current_user.use_ml_predictions = payload.use_ml_predictions
     if payload.highlighting_enabled is not None:
         current_user.highlighting_enabled = payload.highlighting_enabled
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+class LanguageSelect(BaseModel):
+    target_language: str
+
+@app.post("/users/me/language")
+def set_target_language(
+    payload: LanguageSelect,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # The target language is chosen once at onboarding and then fixed, so reject
+    # any attempt to change it after it's been set.
+    if current_user.target_language is not None:
+        raise HTTPException(409, "Target language is already set and cannot be changed")
+    if payload.target_language not in TARGET_LANGUAGES:
+        raise HTTPException(422, "Unknown target language")
+    current_user.target_language = payload.target_language
     db.commit()
     db.refresh(current_user)
     return current_user
@@ -721,8 +754,9 @@ def prefetch_translations(
     current_user: User = Depends(get_current_user),
 ):
     mode = "ml" if current_user.use_ml_predictions else "cefr"
+    target_language = current_user.target_language or DEFAULT_LANGUAGE
     for item in payload.words:
-        background_tasks.add_task(_prefetch_translation, item.paragraph_id, item.word, current_user.id, mode)
+        background_tasks.add_task(_prefetch_translation, item.paragraph_id, item.word, current_user.id, mode, target_language)
     return {"queued": len(payload.words)}
 
 
@@ -739,6 +773,7 @@ def prefetch_pdf_translations(
     current_user: User = Depends(get_current_user),
 ):
     mode = "ml" if current_user.use_ml_predictions else "cefr"
+    target_language = current_user.target_language or DEFAULT_LANGUAGE
     for word in payload.words:
         background_tasks.add_task(
             _prefetch_translation_pdf,
@@ -748,6 +783,7 @@ def prefetch_pdf_translations(
             payload.page_text,
             current_user.id,
             mode,
+            target_language,
         )
     return {"queued": len(payload.words)}
 
@@ -822,7 +858,11 @@ def create_lookup(
         translation_text = cached.translation_target
     else:
         try:
-            result = get_translator().translate(payload.word, context=sentence)
+            result = get_translator().translate(
+                payload.word,
+                context=sentence,
+                target_lang=current_user.target_language or DEFAULT_LANGUAGE,
+            )
             if result:
                 translation_text = result.target
         except Exception as e:

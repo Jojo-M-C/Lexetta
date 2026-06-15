@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Translation:
-    target: str  # the German translation
+    target: str  # the translation in the user's target language
     source: str | None = None  # optional — original word as the model interpreted it
 
 

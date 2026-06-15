@@ -16,6 +16,7 @@ export default function Calibration() {
     api.getCalibrationWords().then(setItems).catch((e) => setError(e.message));
   }, []);
 
+  if (!user?.target_language) return <Navigate to="/language" replace />;
   if (user?.calibration_done) return <Navigate to="/library" replace />;
 
   if (error) {
