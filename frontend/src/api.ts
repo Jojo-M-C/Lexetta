@@ -1,4 +1,7 @@
-const BASE = "http://localhost:8000";
+// Dev: unset → falls back to the local backend. Prod build: VITE_API_BASE=/api
+// (set in frontend/.env.production) so the frontend calls the API same-origin
+// through Caddy. See notes/DEPLOYMENT.md.
+const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000";
 
 function getUserId(): number | null {
   const stored = localStorage.getItem("lexetta_user");

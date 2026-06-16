@@ -1,0 +1,24 @@
+# Replace yourdomain.example with your real domain.
+# Generate the password hash with:
+#   docker run --rm caddy caddy hash-password --plaintext 'YOUR_MASTER_PASSWORD'
+# then paste it below (the username can be anything you share, e.g. fluidread).
+# Directive is `basic_auth` on Caddy v2.8+; older versions use `basicauth`.
+
+yourdomain.example {
+	basic_auth {
+		fluidread $2a$14$REPLACE_WITH_HASH_FROM_STEP_1
+	}
+
+	# API → FastAPI. Strip /api so backend routes stay at the root they expect.
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy backend:8000
+	}
+
+	# Everything else → the built React app (SPA fallback to index.html).
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

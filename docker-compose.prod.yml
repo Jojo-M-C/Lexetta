@@ -1,0 +1,45 @@
+# Production stack for the DigitalOcean Droplet. See notes/DEPLOYMENT.md.
+# Run: docker compose -f docker-compose.prod.yml up -d --build
+#
+# Unlike the dev docker-compose.yml, Postgres is NOT published to the host —
+# it's reachable only inside the Docker network (the backend connects via @db).
+
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lexetta
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: lexetta
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    depends_on:
+      - db
+    volumes:
+      - uploads:/app/uploads
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./frontend/dist:/srv
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  uploads:
+  caddy_data:
+  caddy_config:
