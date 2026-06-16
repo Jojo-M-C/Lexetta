@@ -32,7 +32,7 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="bg-white rounded-lg shadow p-8 w-96">
-        <h1 className="text-2xl font-bold mb-6">Glossara</h1>
+        <h1 className="text-2xl font-bold mb-6">FluidRead</h1>
 
         {error && (
           <div className="bg-red-50 text-red-700 p-3 rounded mb-4 text-sm">
