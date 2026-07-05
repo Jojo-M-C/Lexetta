@@ -44,3 +44,5 @@ ebooklib
 # beautifulsoup4: strips each chapter's XHTML down to block-level text
 # and locates inline <img> references during EPUB parsing.
 beautifulsoup4
+
+python-multipart
