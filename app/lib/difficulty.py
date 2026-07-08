@@ -1,10 +1,7 @@
-import threading
-import torch
 from wordfreq import zipf_frequency
-from lexetta_lcp.CompLexPerAnnotator.model import load_trained
 from sqlalchemy.orm import Session
 
-from app.config import settings
+from app.lib.lcp_modal import APP_NAME as LCP_APP_NAME
 from app.lib.lemmatize import lemmatize_many
 from app.models import (
     CalibrationItem,
@@ -30,9 +27,6 @@ def is_frequent_word(word: str, threshold: float) -> bool:
     score 0.0.
     """
     return zipf_frequency(word.lower(), "en") > threshold
-_load_lock = threading.Lock()
-_predict_lock = threading.Lock()
-_LCP_MODEL = None # stores (model, tokenizer)
 
 
 def difficult_words(words: list[str], user: User, db: Session) -> set[str]:
@@ -75,25 +69,24 @@ def difficult_words(words: list[str], user: User, db: Session) -> set[str]:
 
 ML_DIFFICULTY_THRESHOLD = 0.5
 
+_LCP_MODAL = None  # cached handle to the deployed Modal class
 
-def _load_lcp_model():
-    global _LCP_MODEL
-    with _load_lock:
-        if _LCP_MODEL is not None:
-            return _LCP_MODEL
 
-        # Treat empty strings (e.g. `LCP_MODEL_REVISION=` left blank in .env) as
-        # unset, so load_trained falls back to its defaults instead of passing
-        # an empty token/revision to the Hub.
-        model, tokenizer = load_trained(
-            settings.lcp_model_dir,
-            token=settings.lcp_model_token or None,
-            revision=settings.lcp_model_revision or None,
-        )
-        if torch.cuda.is_available():
-            model = model.to("cuda")
-        _LCP_MODEL = model, tokenizer
-        return _LCP_MODEL
+def _lcp_predictor():
+    """
+    Return an instance of the deployed Modal ``LCPModel`` class.
+
+    The model lives on a Modal GPU container (see app/lib/lcp_modal.py); we only
+    hold a lightweight remote handle here. Looking it up by name requires the app
+    to have been deployed (``modal deploy app/lib/lcp_modal.py``) and Modal
+    credentials to be configured on this host.
+    """
+    global _LCP_MODAL
+    if _LCP_MODAL is None:
+        import modal
+
+        _LCP_MODAL = modal.Cls.from_name(LCP_APP_NAME, "LCPModel")
+    return _LCP_MODAL()
 
 
 def _get_user_history(user: User, db: Session) -> list[dict]:
@@ -149,8 +142,6 @@ def difficult_words_ml(
     if not tokens:
         return set()
 
-    from lexetta_lcp.CompLexPerAnnotator.model import predict_batch
-
     # only run the ML model on rare words; frequent words are instantly "easy"
     ml_indices = [i for i, t in enumerate(tokens) if not is_frequent_word(t, BASIC_WORD_THRESHOLD)]
 
@@ -160,10 +151,10 @@ def difficult_words_ml(
 
     ml_preds = {}
     if ml_words:
-        model, tokenizer = _load_lcp_model()
-        histories = [_get_user_history(user, db)] * len(ml_words)
-        with _predict_lock:
-            preds_list = predict_batch(model, tokenizer, ml_sentences, ml_words, histories)
+        # The history is the same for every token, so send it once and let the
+        # Modal container fan it out (see LCPModel.predict).
+        history = _get_user_history(user, db)
+        preds_list = _lcp_predictor().predict.remote(ml_sentences, ml_words, history)
         ml_preds = dict(zip(ml_indices, preds_list))
 
     # the result list contains the prediction for each input token. if there is no ml prediction

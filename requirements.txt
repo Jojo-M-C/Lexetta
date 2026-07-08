@@ -48,3 +48,9 @@ beautifulsoup4
 # wordfreq: word frequency data (English list built from SUBTLEX among
 # other corpora). Used to gauge how common/rare a word is.
 wordfreq
+
+# modal: serverless GPU runtime. The LCP complexity model runs on a Modal
+# container (app/lib/lcp_modal.py); the web process only holds a lightweight
+# remote handle and calls it, so torch/transformers/lexetta-lcp are no longer
+# needed in the web process.
+modal
