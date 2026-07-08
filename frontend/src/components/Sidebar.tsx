@@ -14,7 +14,7 @@ export default function Sidebar() {
         <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
           <BookOpen className="text-white" size={20} />
         </div>
-        <span className="text-xl font-semibold">Glossara</span>
+        <span className="text-xl font-semibold">FluidRead</span>
       </div>
 
       {/* Nav links */}

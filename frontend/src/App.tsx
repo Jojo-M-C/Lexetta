@@ -9,8 +9,6 @@ import Reader from "./pages/readers/Reader";
 import Calibration from "./pages/Calibration";
 import LanguageSelect from "./pages/LanguageSelect";
 
-// Requires login only — used for /language and /calibration so they don't loop
-// back on themselves.
 function AuthRoute({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
