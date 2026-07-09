@@ -16,11 +16,13 @@ function getUserId(): number | null {
 // Carries the HTTP status so callers can tell a specific failure (e.g. 503, the
 // difficulty model being offline) from any other error.
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    message: string
-  ) {
+  // Declared and assigned explicitly: `erasableSyntaxOnly` (tsconfig.app.json)
+  // disallows constructor parameter properties, which emit runtime code.
+  status: number;
+
+  constructor(status: number, message: string) {
     super(message);
+    this.status = status;
     this.name = "ApiError";
   }
 }
