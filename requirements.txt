@@ -54,3 +54,7 @@ wordfreq
 # remote handle and calls it, so torch/transformers/lexetta-lcp are no longer
 # needed in the web process.
 modal
+
+# python-multipart: required by FastAPI to parse multipart/form-data, which the
+# document upload endpoint uses. Without it the app raises at startup.
+python-multipart

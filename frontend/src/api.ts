@@ -10,6 +10,18 @@ function getUserId(): number | null {
   }
 }
 
+// Carries the HTTP status so callers can tell a specific failure (e.g. 503, the
+// difficulty model being offline) from any other error.
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -20,7 +32,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers["X-User-Id"] = String(userId);
   }
   const res = await fetch(`${BASE}${path}`, { ...options, headers });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) throw new ApiError(res.status, `${res.status} ${res.statusText}`);
   return res.json();
 }
 

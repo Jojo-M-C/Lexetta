@@ -72,6 +72,16 @@ def difficult_words(words: list[str], user: User, db: Session) -> set[str]:
 
 ML_DIFFICULTY_THRESHOLD = 0.5
 
+class MLServiceUnavailable(Exception):
+    """
+    The Modal GPU service could not be reached or failed.
+
+    Deliberately never falls back to the CEFR rule: mixing rule-based highlights
+    into an ML session would pollute the logged research data. Callers surface an
+    outage to the user instead.
+    """
+
+
 _LCP_MODAL = None  # cached instance handle for the deployed Modal class
 
 
@@ -202,7 +212,12 @@ def difficult_words_ml(
         # Modal container fan it out (see LCPModel.predict).
         history = _get_user_history(user, db)
         started = time.perf_counter()
-        preds_list = _lcp_predictor().predict.remote(ml_sentences, ml_words, history)
+        try:
+            # Covers a missing/failed lookup (bad Modal credentials, app not
+            # deployed) as well as the call itself timing out or erroring.
+            preds_list = _lcp_predictor().predict.remote(ml_sentences, ml_words, history)
+        except Exception as e:
+            raise MLServiceUnavailable(str(e)) from e
         # Compare against the container-side "[lcp] predict" line: the difference
         # is cold start + queueing + network, not model time.
         print(

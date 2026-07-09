@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
-from app.lib.difficulty import difficult_words, difficult_words_ml
+from app.lib.difficulty import MLServiceUnavailable, difficult_words, difficult_words_ml
 from app.database import get_db, SessionLocal
 from app.models import User, Document, Page, Paragraph, Chapter, EpubImage, ClickedWord, HighlightedWord, VocabularyEntry, CalibrationItem, CalibrationResponse
 from pydantic import BaseModel
@@ -67,14 +67,21 @@ def _persist_highlighted_words(
              if re.search(r'\b' + re.escape(word) + r'\b', p.text, re.IGNORECASE)),
             "",
         )
-        db.add(HighlightedWord(
-            user_id=user.id,
-            document_id=document_id,
-            page_number=page_number,
-            word=key,
-            context=context,
-            mode=mode,
-        ))
+        # Readers stream highlights in while the user clicks, so this insert races
+        # the identical one in /lookups. The row's content is the same either way;
+        # whoever gets there first wins.
+        db.execute(
+            pg_insert(HighlightedWord)
+            .values(
+                user_id=user.id,
+                document_id=document_id,
+                page_number=page_number,
+                word=key,
+                context=context,
+                mode=mode,
+            )
+            .on_conflict_do_nothing(constraint="uq_highlighted_user_doc_page_word")
+        )
 
 
 def _word_is_difficult(
@@ -905,17 +912,31 @@ def create_lookup(
 
     # A word clicked before its chunk was scored (or on a page the reader left
     # early) still belongs in the highlight log, so the log doesn't depend on how
-    # long someone stayed on the page.
+    # long someone stayed on the page. A /difficulty chunk may be inserting the
+    # same row right now, hence the conflict-safe insert followed by a re-select.
     if highlighted is None and was_highlighted and page_number is not None:
-        highlighted = HighlightedWord(
-            user_id=current_user.id,
-            document_id=document.id,
-            page_number=page_number,
-            word=payload.word.lower(),
-            context=sentence,
-            mode=mode,
+        db.execute(
+            pg_insert(HighlightedWord)
+            .values(
+                user_id=current_user.id,
+                document_id=document.id,
+                page_number=page_number,
+                word=payload.word.lower(),
+                context=sentence,
+                mode=mode,
+            )
+            .on_conflict_do_nothing(constraint="uq_highlighted_user_doc_page_word")
         )
-        db.add(highlighted)
+        highlighted = (
+            db.query(HighlightedWord)
+            .filter(
+                HighlightedWord.user_id == current_user.id,
+                HighlightedWord.document_id == document.id,
+                HighlightedWord.page_number == page_number,
+                HighlightedWord.word == payload.word.lower(),
+            )
+            .first()
+        )
 
     if highlighted is not None:
         highlighted.was_clicked = True
@@ -1040,6 +1061,12 @@ def get_difficulty(
     if not current_user.highlighting_enabled:
         return {"difficult": []}
 
+    # Authorise before spending GPU time, not after.
+    if payload.document_id is not None:
+        document = db.get(Document, payload.document_id)
+        if not document or document.user_id != current_user.id:
+            raise HTTPException(404, "Document not found")
+
     # Score each word type at most once per page. Both difficulty functions return
     # a set of words, so a repeated occurrence can only produce a duplicate answer
     # at full cost. The trade: the first occurrence's sentence is the context that
@@ -1059,7 +1086,13 @@ def get_difficulty(
                     seen.add(word.lower())
                     sentences.append(sentence)
                     words.append(word)
-        difficult = difficult_words_ml(sentences, words, current_user, db)
+        try:
+            difficult = difficult_words_ml(sentences, words, current_user, db)
+        except MLServiceUnavailable as e:
+            # No CEFR fallback: the reader shows an outage banner and no highlights,
+            # rather than silently mixing rule-based highlights into an ML session.
+            print(f"[lcp] difficulty unavailable: {e}")
+            raise HTTPException(503, "Difficulty model is unavailable") from e
     else:
         words = []
         for text in payload.texts:
@@ -1074,9 +1107,6 @@ def get_difficulty(
     # matching what get_page used to do before highlighting moved here.
     if difficult and current_user.use_ml_predictions and payload.document_id is not None \
             and payload.page_number is not None:
-        document = db.get(Document, payload.document_id)
-        if not document or document.user_id != current_user.id:
-            raise HTTPException(404, "Document not found")
         paragraphs = _page_paragraphs(db, payload.document_id, payload.page_number)
         if paragraphs:
             _persist_highlighted_words(

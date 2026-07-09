@@ -67,6 +67,10 @@ HF_CACHE_DIR = "/root/.cache/huggingface"
     scaledown_window=300,
     timeout=600,
 )
+# Without this a container serves one input at a time, so a reader's word lookup
+# queues behind every remaining chunk of its own page, and a second reader queues
+# behind the first. The model is small; a few concurrent inputs share the GPU fine.
+@modal.concurrent(max_inputs=4)
 class LCPModel:
     @modal.enter(snap=True)
     def load_to_cpu(self):

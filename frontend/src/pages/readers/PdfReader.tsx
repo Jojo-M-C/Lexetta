@@ -5,6 +5,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { api, type PdfWord } from "../../api";
 import { streamDifficulty } from "../../lib/difficultyStream";
+import OutageBanner from "../../components/OutageBanner";
 import WordTooltip from "../../components/WordTooltip";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -53,6 +54,7 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
   const [scale, setScale] = useState(0);
   const [words, setWords] = useState<PdfWord[]>([]);
   const [difficult, setDifficult] = useState<Set<string>>(new Set());
+  const [mlOutage, setMlOutage] = useState(false);
 
   // User zoom, a multiplier on the fit-to-width base scale (1 = fit to width).
   const [zoom, setZoom] = useState(1);
@@ -157,6 +159,7 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
     let cancelled = false;
     setWords([]);
     setDifficult(new Set());
+    setMlOutage(false);
 
     (async () => {
       try {
@@ -168,10 +171,8 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
         // Send the page text, not a bag of words: the model scores each token in
         // its sentence. No document/page context — PDFs have no page rows, so
         // there is nothing to log highlights against.
-        await streamDifficulty(
-          [data.text],
-          undefined,
-          (found) => {
+        await streamDifficulty([data.text], undefined, {
+          onWords: (found) => {
             // Word boxes are matched on letters-only text; normalise to match.
             const normalized = found
               .map(normalize)
@@ -190,8 +191,9 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
               })
               .catch(() => {});
           },
-          () => cancelled
-        );
+          onOutage: () => setMlOutage(true),
+          isCancelled: () => cancelled,
+        });
       } catch (e) {
         if (!cancelled) console.error("word fetch failed:", e);
       }
@@ -294,6 +296,7 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
+      {mlOutage && <OutageBanner />}
       <div className="p-4">
         <button
           onClick={() => navigate("/library")}

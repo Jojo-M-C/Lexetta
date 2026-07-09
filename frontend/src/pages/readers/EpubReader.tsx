@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { api, type Chapter, type Page } from "../../api";
 import { streamDifficulty } from "../../lib/difficultyStream";
+import OutageBanner from "../../components/OutageBanner";
 import { tokenize } from "../../lib/tokenize";
 import Token from "../../components/Token";
 import WordTooltip from "../../components/WordTooltip";
@@ -38,6 +39,7 @@ export default function EpubReader() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [difficultWords, setDifficultWords] = useState<Set<string>>(new Set());
+  const [mlOutage, setMlOutage] = useState(false);
 
   const [chapters, setChapters] = useState<Chapter[]>([]);
   const [tocOpen, setTocOpen] = useState(false);
@@ -73,6 +75,7 @@ export default function EpubReader() {
     setLoading(true);
     setError(null);
     setDifficultWords(new Set());
+    setMlOutage(false);
 
     api
       .getPage(Number(documentId), currentPage)
@@ -85,21 +88,24 @@ export default function EpubReader() {
         return streamDifficulty(
           pageData.paragraphs.map((p) => p.text),
           { documentId: Number(documentId), pageNumber: currentPage },
-          (words) => {
-            const lowered = words.map((w) => w.toLowerCase());
-            setDifficultWords((prev) => new Set([...prev, ...lowered]));
+          {
+            onWords: (words) => {
+              const lowered = words.map((w) => w.toLowerCase());
+              setDifficultWords((prev) => new Set([...prev, ...lowered]));
 
-            // Warm the translation cache for the words that just lit up, so
-            // clicking one hits the cache instead of OpenAI.
-            const pairs = lowered.flatMap((word) => {
-              const para = pageData.paragraphs.find((p) =>
-                p.text.toLowerCase().includes(word)
-              );
-              return para ? [{ paragraph_id: para.id, word }] : [];
-            });
-            if (pairs.length > 0) api.prefetch(pairs).catch(() => {});
-          },
-          () => cancelled
+              // Warm the translation cache for the words that just lit up, so
+              // clicking one hits the cache instead of OpenAI.
+              const pairs = lowered.flatMap((word) => {
+                const para = pageData.paragraphs.find((p) =>
+                  p.text.toLowerCase().includes(word)
+                );
+                return para ? [{ paragraph_id: para.id, word }] : [];
+              });
+              if (pairs.length > 0) api.prefetch(pairs).catch(() => {});
+            },
+            onOutage: () => setMlOutage(true),
+            isCancelled: () => cancelled,
+          }
         );
       })
       .catch((e) => {
@@ -239,6 +245,7 @@ export default function EpubReader() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
+      {mlOutage && <OutageBanner />}
       <div className="p-4 flex items-center gap-3">
         <button
           onClick={() => navigate("/library")}

@@ -1,4 +1,4 @@
-import { api } from "../api";
+import { ApiError, api } from "../api";
 import { tokenize } from "./tokenize";
 
 // Two sentences is roughly one batch of model work (~1s), so highlights appear
@@ -37,11 +37,17 @@ export function sentenceChunks(
  *
  * `ctx` is omitted for PDFs, which have no page rows to log highlights against.
  */
+export interface StreamHandlers {
+  onWords: (words: string[]) => void;
+  /** The difficulty model is offline (503). No further chunk can succeed. */
+  onOutage?: () => void;
+  isCancelled: () => boolean;
+}
+
 export async function streamDifficulty(
   texts: string[],
   ctx: { documentId: number; pageNumber: number } | undefined,
-  onWords: (words: string[]) => void,
-  isCancelled: () => boolean
+  { onWords, onOutage, isCancelled }: StreamHandlers
 ): Promise<void> {
   // Highlights are decided per word type, not per occurrence, so a word already
   // sent in an earlier chunk must not be scored again. On a typical page most
@@ -63,6 +69,12 @@ export async function streamDifficulty(
     try {
       ({ difficult } = await api.getDifficulty(chunk, ctx, exclude));
     } catch (e) {
+      if (e instanceof ApiError && e.status === 503) {
+        // The model is down, so every remaining chunk would fail too. Tell the
+        // reader once and stop, rather than grinding through ten more failures.
+        onOutage?.();
+        return;
+      }
       // One bad chunk shouldn't stop the rest of the page from highlighting.
       console.error("difficulty chunk failed:", e);
       continue;

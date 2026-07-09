@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-re
 import { api, type Page } from "../../api";
 import { streamDifficulty } from "../../lib/difficultyStream";
 import { tokenize } from "../../lib/tokenize";
+import OutageBanner from "../../components/OutageBanner";
 import Token from "../../components/Token";
 import WordTooltip from "../../components/WordTooltip";
 import PageInput from "../../components/PageInput";
@@ -27,6 +28,7 @@ export default function TxtReader() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [difficultWords, setDifficultWords] = useState<Set<string>>(new Set());
+  const [mlOutage, setMlOutage] = useState(false);
 
   const [activeAnchor, setActiveAnchor] = useState<HTMLElement | null>(null);
   const [activeTranslation, setActiveTranslation] = useState<string | null>(null);
@@ -48,6 +50,7 @@ export default function TxtReader() {
     setLoading(true);
     setError(null);
     setDifficultWords(new Set());
+    setMlOutage(false);
 
     api
       .getPage(Number(documentId), currentPage)
@@ -60,11 +63,14 @@ export default function TxtReader() {
         return streamDifficulty(
           pageData.paragraphs.map((p) => p.text),
           { documentId: Number(documentId), pageNumber: currentPage },
-          (words) =>
-            setDifficultWords(
-              (prev) => new Set([...prev, ...words.map((w) => w.toLowerCase())])
-            ),
-          () => cancelled
+          {
+            onWords: (words) =>
+              setDifficultWords(
+                (prev) => new Set([...prev, ...words.map((w) => w.toLowerCase())])
+              ),
+            onOutage: () => setMlOutage(true),
+            isCancelled: () => cancelled,
+          }
         );
       })
       .catch((e) => {
@@ -149,6 +155,7 @@ export default function TxtReader() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
+      {mlOutage && <OutageBanner />}
       <div className="p-4">
         <button
           onClick={() => navigate("/library")}
