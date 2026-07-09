@@ -90,7 +90,6 @@ export interface Page {
   page_number: number;
   total_pages: number;
   paragraphs: { id: number; text: string }[];
-  ml_highlights: string[] | null;
   // EPUB-only; null/empty for txt and pdf pages.
   chapter: { index: number; title: string } | null;
   images: PageImage[];
@@ -196,10 +195,23 @@ export const api = {
       method: "POST",
       body: JSON.stringify(params),
     }),
-  getDifficulty: (sentences: string[]) =>
+  // `texts` may be paragraphs, sentences, or a whole page — the server segments
+  // them into sentences before scoring, so callers don't have to. `ctx` lets the
+  // server log ML highlights against a page; PDFs have no page rows and omit it.
+  // `exclude` is the lowercased word types already scored for this page.
+  getDifficulty: (
+    texts: string[],
+    ctx?: { documentId: number; pageNumber: number },
+    exclude: string[] = []
+  ) =>
     request<{ difficult: string[] }>("/difficulty", {
       method: "POST",
-      body: JSON.stringify({ sentences }),
+      body: JSON.stringify({
+        texts,
+        document_id: ctx?.documentId ?? null,
+        page_number: ctx?.pageNumber ?? null,
+        exclude,
+      }),
     }),
   prefetch: (words: { paragraph_id: number; word: string }[]) =>
     request<{ queued: number }>("/prefetch", {

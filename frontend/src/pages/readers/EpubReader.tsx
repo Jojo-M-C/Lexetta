@@ -10,6 +10,7 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { api, type Chapter, type Page } from "../../api";
+import { streamDifficulty } from "../../lib/difficultyStream";
 import { tokenize } from "../../lib/tokenize";
 import Token from "../../components/Token";
 import WordTooltip from "../../components/WordTooltip";
@@ -68,41 +69,49 @@ export default function EpubReader() {
 
   useEffect(() => {
     if (!documentId) return;
+    let cancelled = false;
     setLoading(true);
     setError(null);
     setDifficultWords(new Set());
 
     api
       .getPage(Number(documentId), currentPage)
-      .then(async (pageData) => {
+      .then((pageData) => {
+        if (cancelled) return;
         setPage(pageData);
+        // Show the text straight away; highlights arrive chunk by chunk after.
+        setLoading(false);
 
-        let difficult: Set<string>;
-        if (pageData.ml_highlights !== null) {
-          difficult = new Set(pageData.ml_highlights);
-        } else {
-          const allWords = new Set<string>();
-          for (const para of pageData.paragraphs) {
-            for (const tok of tokenize(para.text)) {
-              if (tok.type === "word") allWords.add(tok.text);
-            }
-          }
-          const { difficult: diff } = await api.getDifficulty([...allWords]);
-          difficult = new Set(diff.map((w) => w.toLowerCase()));
-        }
+        return streamDifficulty(
+          pageData.paragraphs.map((p) => p.text),
+          { documentId: Number(documentId), pageNumber: currentPage },
+          (words) => {
+            const lowered = words.map((w) => w.toLowerCase());
+            setDifficultWords((prev) => new Set([...prev, ...lowered]));
 
-        setDifficultWords(difficult);
-
-        const pairs = [...difficult].flatMap((word) => {
-          const para = pageData.paragraphs.find((p) =>
-            p.text.toLowerCase().includes(word)
-          );
-          return para ? [{ paragraph_id: para.id, word }] : [];
-        });
-        if (pairs.length > 0) api.prefetch(pairs).catch(() => {});
+            // Warm the translation cache for the words that just lit up, so
+            // clicking one hits the cache instead of OpenAI.
+            const pairs = lowered.flatMap((word) => {
+              const para = pageData.paragraphs.find((p) =>
+                p.text.toLowerCase().includes(word)
+              );
+              return para ? [{ paragraph_id: para.id, word }] : [];
+            });
+            if (pairs.length > 0) api.prefetch(pairs).catch(() => {});
+          },
+          () => cancelled
+        );
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (!cancelled) {
+          setError(e.message);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [documentId, currentPage]);
 
   // Load page images as auth-headed object URLs, revoking them when the page

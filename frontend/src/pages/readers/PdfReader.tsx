@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-re
 import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { api, type PdfWord } from "../../api";
+import { streamDifficulty } from "../../lib/difficultyStream";
 import WordTooltip from "../../components/WordTooltip";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
@@ -164,36 +165,33 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
         pageTextRef.current = data.text;
         setWords(data.words);
 
-        const uniq = new Set<string>();
-        for (const w of data.words) {
-          const clean = normalize(w.text);
-          if (clean.length > 1) uniq.add(clean);
-        }
+        // Send the page text, not a bag of words: the model scores each token in
+        // its sentence. No document/page context — PDFs have no page rows, so
+        // there is nothing to log highlights against.
+        await streamDifficulty(
+          [data.text],
+          undefined,
+          (found) => {
+            // Word boxes are matched on letters-only text; normalise to match.
+            const normalized = found
+              .map(normalize)
+              .filter((w) => w.length > 1);
+            if (normalized.length === 0) return;
+            setDifficult((prev) => new Set([...prev, ...normalized]));
 
-        let diff = new Set<string>();
-        if (uniq.size > 0) {
-          try {
-            const res = await api.getDifficulty([...uniq]);
-            diff = new Set(res.difficult.map((w) => w.toLowerCase()));
-          } catch (e) {
-            console.error("difficulty lookup failed:", e);
-          }
-        }
-        if (cancelled) return;
-        setDifficult(diff);
-
-        // Warm the translation cache for highlighted words so clicking them
-        // feels instant (the lookup then hits the cache instead of OpenAI).
-        if (diff.size > 0) {
-          api
-            .prefetchPdf({
-              document_id: documentId,
-              page_number: currentPage,
-              page_text: data.text,
-              words: [...diff],
-            })
-            .catch(() => {});
-        }
+            // Warm the translation cache for the words that just lit up, so
+            // clicking one feels instant (cache hit instead of OpenAI).
+            api
+              .prefetchPdf({
+                document_id: documentId,
+                page_number: currentPage,
+                page_text: data.text,
+                words: normalized,
+              })
+              .catch(() => {});
+          },
+          () => cancelled
+        );
       } catch (e) {
         if (!cancelled) console.error("word fetch failed:", e);
       }

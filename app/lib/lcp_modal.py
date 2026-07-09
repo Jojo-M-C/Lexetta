@@ -24,6 +24,7 @@ After deploy the class is reachable from any process (with Modal creds) via
 """
 
 import os
+import time
 
 import modal
 
@@ -56,15 +57,26 @@ HF_CACHE_DIR = "/root/.cache/huggingface"
     memory=16384,
     secrets=[modal.Secret.from_name("lcp-model")],
     volumes={HF_CACHE_DIR: hf_cache},
+    # Snapshot the container after the weights are in CPU RAM, so later cold
+    # starts restore that memory instead of re-reading and re-deserialising the
+    # checkpoint. Only the CPU side is captured — see load_to_cpu/move_to_gpu.
+    enable_memory_snapshot=True,
     # Keep a container warm for 5 min after the last call so bursts of page reads
-    # reuse the loaded model. Raise, or set min_containers=1, to always stay warm.
+    # reuse the loaded model. Snapshots make cold starts cheap enough that raising
+    # this mostly just pays for idle GPU time; set min_containers=1 for a demo.
     scaledown_window=300,
     timeout=600,
 )
 class LCPModel:
-    @modal.enter()
-    def load(self):
-        """Load the model once per container (paid on cold start only)."""
+    @modal.enter(snap=True)
+    def load_to_cpu(self):
+        """
+        Load the model into CPU memory. Runs before the snapshot is taken, so on
+        a warm restore this whole method is replaced by restoring the snapshot.
+
+        No GPU is visible here: CPU-only snapshots cannot capture CUDA state,
+        which is why the device move lives in move_to_gpu below.
+        """
         os.environ.setdefault("HF_HOME", HF_CACHE_DIR)
         # transformers makes some Hub API calls without forwarding the explicit
         # token (e.g. the tokenizer's mistral-regex check), which 401s on
@@ -73,6 +85,7 @@ class LCPModel:
             os.environ.setdefault("HF_TOKEN", os.environ["LCP_MODEL_TOKEN"])
         from lexetta_lcp.CompLexPerAnnotator.model import load_trained
 
+        started = time.perf_counter()
         # Blank secret values (e.g. an unset token) must become None so
         # load_trained falls back to its defaults instead of passing "".
         self.model, self.tokenizer = load_trained(
@@ -80,13 +93,33 @@ class LCPModel:
             token=os.environ.get("LCP_MODEL_TOKEN") or None,
             revision=os.environ.get("LCP_MODEL_REVISION") or None,
         )
-        # load_trained leaves the model on CPU; predict_batch sends inputs to
-        # model.device, so moving the model here is all GPU use requires.
+        hf_cache.commit()
+        print(f"[lcp] load_trained took {time.perf_counter() - started:.1f}s")
+
+    @modal.enter(snap=False)
+    def move_to_gpu(self):
+        """
+        Move the (possibly snapshot-restored) model onto the GPU. Runs on every
+        container start, snapshotted or not, because CUDA state is never captured.
+        """
         import torch
 
+        started = time.perf_counter()
         if torch.cuda.is_available():
             self.model = self.model.to("cuda")
-        hf_cache.commit()
+        else:
+            # Falling back to CPU silently would look like "the GPU is just slow".
+            print("[lcp] WARNING: no CUDA device — running on CPU")
+
+        dtype = next(self.model.parameters()).dtype
+        print(
+            f"[lcp] ready in {time.perf_counter() - started:.1f}s "
+            f"device={self.model.device} dtype={dtype}"
+        )
+        # The L4 + memory sizing assumes bf16; fp32 doubles the weights and the
+        # cold start, and nothing else would tell us it happened.
+        if dtype != torch.bfloat16:
+            print(f"[lcp] WARNING: expected bfloat16 weights, got {dtype}")
 
     @modal.method()
     def predict(
@@ -106,4 +139,19 @@ class LCPModel:
         if not tokens:
             return []
         histories = [history] * len(tokens)
-        return predict_batch(self.model, self.tokenizer, sentences, tokens, histories)
+
+        started = time.perf_counter()
+        scores = predict_batch(self.model, self.tokenizer, sentences, tokens, histories)
+        elapsed = time.perf_counter() - started
+
+        # ms/token across calls of different sizes tells us whether predict_batch
+        # really batches or just loops. unique/context sizes size up the two known
+        # sources of wasted work (duplicate tokens, unbounded history).
+        print(
+            f"[lcp] predict {elapsed:.2f}s  tokens={len(tokens)} "
+            f"({elapsed / len(tokens) * 1000:.0f}ms/token) "
+            f"unique={len(set(t.lower() for t in tokens))} "
+            f"history={len(history)} "
+            f"ctx_chars_avg={sum(len(s) for s in sentences) // len(sentences)}"
+        )
+        return scores

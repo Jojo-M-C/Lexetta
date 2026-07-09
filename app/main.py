@@ -19,7 +19,7 @@ import mimetypes
 import posixpath
 from app.lib.translators.factory import get_translator
 from app.lib.languages import TARGET_LANGUAGES, DEFAULT_LANGUAGE
-from app.lib.sentences import find_sentence, split_sentences
+from app.lib.sentences import find_sentence, split_sentences_many
 from app.lib.tokenize import word_tokenize
 import csv
 import io
@@ -55,8 +55,13 @@ def _persist_highlighted_words(
     }
 
     for word in words:
-        if word in existing:
+        # Store lowercased: the ML path yields original-case surface forms, while
+        # /lookups and the translation cache look rows up by word.lower(). Mixed
+        # case here means a capitalised highlight never matches its own lookup.
+        key = word.lower()
+        if key in existing:
             continue
+        existing.add(key)  # two surface cases in one batch must not both insert
         context = next(
             (find_sentence(p.text, word) for p in paragraphs
              if re.search(r'\b' + re.escape(word) + r'\b', p.text, re.IGNORECASE)),
@@ -66,10 +71,36 @@ def _persist_highlighted_words(
             user_id=user.id,
             document_id=document_id,
             page_number=page_number,
-            word=word,
+            word=key,
             context=context,
             mode=mode,
         ))
+
+
+def _word_is_difficult(
+    word: str, sentence: str, user: User, db: Session, displayed: bool
+) -> bool:
+    """
+    Whether the system considers `word` difficult in `sentence`.
+
+    Called from /lookups when no highlight row exists yet. Readers stream
+    highlights in chunk by chunk over several seconds, so a word clicked early
+    would otherwise be logged as "not highlighted" purely because its chunk had
+    not come back — mislabelling the training data the lookup log exists to
+    produce. Scoring on demand makes the label independent of click timing.
+
+    If the model is unreachable, fall back to what the reader actually displayed
+    rather than failing the lookup.
+    """
+    if not user.highlighting_enabled:
+        return False
+    if not user.use_ml_predictions:
+        return word.lower() in difficult_words([word], user, db)
+    try:
+        return word in difficult_words_ml([sentence], [word], user, db)
+    except Exception as e:
+        print(f"[lcp] difficulty check failed during lookup: {e}")
+        return displayed
 
 def _store_prefetched_translation(
     db: Session,
@@ -504,32 +535,18 @@ def get_page(
     )
 
     document.last_page_read = page_number
-
-    ml_highlights: list[str] | None = None
-    if current_user.use_ml_predictions and current_user.highlighting_enabled:
-        # The ML model scores each token in its sentence context, so build
-        # parallel sentence/token lists from the page's paragraphs (same shape
-        # the /difficulty endpoint feeds it).
-        sentences: list[str] = []
-        tokens: list[str] = []
-        for para in paragraphs:
-            for sentence in split_sentences(para.text):
-                for word in word_tokenize(sentence):
-                    sentences.append(sentence)
-                    tokens.append(word)
-        ml_set = difficult_words_ml(sentences, tokens, current_user, db) or set()
-        ml_highlights = sorted(ml_set)
-        _persist_highlighted_words(db, current_user, document_id, page_number, ml_set, paragraphs, mode="ml")
-
     db.commit()
 
+    # Highlighting is deliberately NOT computed here: the ML model takes seconds,
+    # and blocking this response on it would mean the reader shows nothing at all
+    # until it finishes. The reader renders this text immediately and then streams
+    # highlights in via /difficulty, a couple of sentences at a time.
     return {
         "document_id": document_id,
         "title": document.title,
         "page_number": page_number,
         "total_pages": total_pages,
         "paragraphs": [{"id": p.id, "text": p.text} for p in paragraphs],
-        "ml_highlights": ml_highlights,
         "chapter": (
             {"index": chapter.chapter_index, "title": chapter.title}
             if chapter else None
@@ -786,6 +803,9 @@ def prefetch_pdf_translations(
 
 class LookupCreate(BaseModel):
     word: str
+    # What the reader actually had highlighted on screen. Only a fallback: the
+    # logged value is decided server-side, because highlights stream in and an
+    # early click would otherwise be recorded as "not highlighted".
     was_highlighted: bool
     paragraph_id: int | None = None
     # PDF documents have no paragraph rows; the frontend instead sends the
@@ -834,48 +854,10 @@ def create_lookup(
         clicked_context = sentence
         page_number = payload.page_number
 
-    # Reuse a cached translation when one exists, keyed by document + page + word.
-    # Both readers warm difficult words via a prefetch endpoint on page load.
-    cached = None
-    if page_number is not None:
-        cached = (
-            db.query(HighlightedWord)
-            .filter(
-                HighlightedWord.user_id == current_user.id,
-                HighlightedWord.document_id == document.id,
-                HighlightedWord.page_number == page_number,
-                HighlightedWord.word == payload.word.lower(),
-                HighlightedWord.translation_target.isnot(None),
-            )
-            .first()
-        )
-
-    translation_text: str | None = None
-    if cached:
-        translation_text = cached.translation_target
-    else:
-        try:
-            result = get_translator().translate(
-                payload.word,
-                context=sentence,
-                target_lang=current_user.target_language or DEFAULT_LANGUAGE,
-            )
-            if result:
-                translation_text = result.target
-        except Exception as e:
-            print(f"Translator error: {e}")
-    event = ClickedWord(
-        user_id=current_user.id,
-        document_id=document.id,
-        paragraph_id=paragraph.id if paragraph else None,
-        word=payload.word,
-        context=clicked_context,
-        was_highlighted=payload.was_highlighted,
-        mode=mode,
-    )
-    db.add(event)
-    db.flush()  # get event.id before using it below
-
+    # The highlight row for this word on this page, if the reader's difficulty
+    # stream has already reached it. It also doubles as the translation cache,
+    # keyed by document + page + word, warmed by the prefetch endpoint.
+    highlighted = None
     if page_number is not None:
         highlighted = (
             db.query(HighlightedWord)
@@ -887,12 +869,60 @@ def create_lookup(
             )
             .first()
         )
-        if highlighted is not None:
-            highlighted.was_clicked = True
-            highlighted.clicked_word_id = event.id
-            # Backfill the cache if a live lookup beat the prefetch task to it.
-            if highlighted.translation_target is None and translation_text is not None:
-                highlighted.translation_target = translation_text
+
+    # Decided here, never taken from the client: see _word_is_difficult.
+    was_highlighted = (
+        True if highlighted is not None
+        else _word_is_difficult(
+            payload.word, sentence, current_user, db, displayed=payload.was_highlighted
+        )
+    )
+
+    translation_text: str | None = highlighted.translation_target if highlighted else None
+    if translation_text is None:
+        try:
+            result = get_translator().translate(
+                payload.word,
+                context=sentence,
+                target_lang=current_user.target_language or DEFAULT_LANGUAGE,
+            )
+            if result:
+                translation_text = result.target
+        except Exception as e:
+            print(f"Translator error: {e}")
+
+    event = ClickedWord(
+        user_id=current_user.id,
+        document_id=document.id,
+        paragraph_id=paragraph.id if paragraph else None,
+        word=payload.word,
+        context=clicked_context,
+        was_highlighted=was_highlighted,
+        mode=mode,
+    )
+    db.add(event)
+    db.flush()  # get event.id before using it below
+
+    # A word clicked before its chunk was scored (or on a page the reader left
+    # early) still belongs in the highlight log, so the log doesn't depend on how
+    # long someone stayed on the page.
+    if highlighted is None and was_highlighted and page_number is not None:
+        highlighted = HighlightedWord(
+            user_id=current_user.id,
+            document_id=document.id,
+            page_number=page_number,
+            word=payload.word.lower(),
+            context=sentence,
+            mode=mode,
+        )
+        db.add(highlighted)
+
+    if highlighted is not None:
+        highlighted.was_clicked = True
+        highlighted.clicked_word_id = event.id
+        # Backfill the cache if a live lookup beat the prefetch task to it.
+        if highlighted.translation_target is None and translation_text is not None:
+            highlighted.translation_target = translation_text
 
     # Add a vocabulary card. A card is a word in a specific sentence, so dedup on
     # (word, context): the same word in a new sentence is a new card, but an exact
@@ -968,7 +998,36 @@ def delete_vocabulary(
     return {"id": entry_id, "deleted": True}
 
 class DifficultyRequest(BaseModel):
-    sentences: list[str]
+    # Arbitrary blocks of text (paragraphs, sentences, a PDF page). The server
+    # segments them, so each token is scored in its own sentence rather than in
+    # whatever block the caller happened to send.
+    texts: list[str]
+    # Set by the txt/epub readers so ML highlights can be logged as research data.
+    # PDFs have no page/paragraph rows and send neither, so nothing is stored.
+    document_id: int | None = None
+    page_number: int | None = None
+    # Lowercased word types the caller already had scored for this page. Highlights
+    # are decided per word type, not per occurrence, so re-scoring these would be
+    # discarded work. Readers stream a page in chunks and accumulate this list.
+    exclude: list[str] = []
+
+
+def _page_paragraphs(db: Session, document_id: int, page_number: int) -> list[Paragraph]:
+    """Paragraph rows for a page, or [] for formats that have none (pdf)."""
+    page = (
+        db.query(Page)
+        .filter(Page.document_id == document_id, Page.page_number == page_number)
+        .first()
+    )
+    if not page:
+        return []
+    return (
+        db.query(Paragraph)
+        .filter(Paragraph.page_id == page.id)
+        .order_by(Paragraph.paragraph_index)
+        .all()
+    )
+
 
 @app.post("/difficulty")
 def get_difficulty(
@@ -980,14 +1039,52 @@ def get_difficulty(
     # difficult — they can still click any word to look it up.
     if not current_user.highlighting_enabled:
         return {"difficult": []}
-    
-    sentences: list[str] = []
-    words: list[str] = []
-    for sentence in payload.sentences:
-        for word in word_tokenize(sentence):
-            sentences.append(sentence)
-            words.append(word)
-    difficult = difficult_words_ml(sentences, words, current_user, db)
+
+    # Score each word type at most once per page. Both difficulty functions return
+    # a set of words, so a repeated occurrence can only produce a duplicate answer
+    # at full cost. The trade: the first occurrence's sentence is the context that
+    # decides the word, instead of "difficult if any occurrence scores high".
+    seen: set[str] = {word.lower() for word in payload.exclude}
+
+    if current_user.use_ml_predictions:
+        # The model scores each token in its own sentence, so build parallel
+        # sentence/token lists rather than passing the caller's blocks through.
+        sentences: list[str] = []
+        words: list[str] = []
+        for block_sentences in split_sentences_many(payload.texts):
+            for sentence in block_sentences:
+                for word in word_tokenize(sentence):
+                    if word.lower() in seen:
+                        continue
+                    seen.add(word.lower())
+                    sentences.append(sentence)
+                    words.append(word)
+        difficult = difficult_words_ml(sentences, words, current_user, db)
+    else:
+        words = []
+        for text in payload.texts:
+            for word in word_tokenize(text):
+                if word.lower() in seen:
+                    continue
+                seen.add(word.lower())
+                words.append(word)
+        difficult = difficult_words(words, current_user, db)
+
+    # Only ML highlights are logged, and only for formats with paragraph rows —
+    # matching what get_page used to do before highlighting moved here.
+    if difficult and current_user.use_ml_predictions and payload.document_id is not None \
+            and payload.page_number is not None:
+        document = db.get(Document, payload.document_id)
+        if not document or document.user_id != current_user.id:
+            raise HTTPException(404, "Document not found")
+        paragraphs = _page_paragraphs(db, payload.document_id, payload.page_number)
+        if paragraphs:
+            _persist_highlighted_words(
+                db, current_user, payload.document_id, payload.page_number,
+                difficult, paragraphs, mode="ml",
+            )
+            db.commit()
+
     return {"difficult": sorted(difficult)}
 @app.get("/vocabulary/export")
 def export_vocabulary(

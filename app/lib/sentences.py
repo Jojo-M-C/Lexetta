@@ -24,11 +24,18 @@ def split_sentences(text: str) -> list[str]:
     return [s for sent in doc.sents if (s := sent.text.strip())]
 
 
-def split_sentences(text: str) -> list[str]:
-    """Split `text` into sentences, dropping blanks. Used to build the parallel
-    sentence/token lists the per-token ML complexity model expects."""
-    doc = _get_nlp()(text)
-    return [s for sent in doc.sents if (s := sent.text.strip())]
+def split_sentences_many(texts: list[str]) -> list[list[str]]:
+    """Sentence-split several texts at once, one result list per input.
+
+    spaCy's `pipe` batches the work, which matters on the difficulty path where
+    a whole page's worth of blocks is segmented per request.
+    """
+    if not texts:
+        return []
+    return [
+        [s for sent in doc.sents if (s := sent.text.strip())]
+        for doc in _get_nlp().pipe(texts)
+    ]
 
 
 def find_sentence(text: str, word: str) -> str:

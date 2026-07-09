@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-react";
 import { api, type Page } from "../../api";
+import { streamDifficulty } from "../../lib/difficultyStream";
 import { tokenize } from "../../lib/tokenize";
 import Token from "../../components/Token";
 import WordTooltip from "../../components/WordTooltip";
@@ -43,21 +44,39 @@ export default function TxtReader() {
 
   useEffect(() => {
     if (!documentId) return;
+    let cancelled = false;
     setLoading(true);
     setError(null);
     setDifficultWords(new Set());
 
     api
       .getPage(Number(documentId), currentPage)
-      .then(async (pageData) => {
+      .then((pageData) => {
+        if (cancelled) return;
         setPage(pageData);
+        // Show the text straight away; highlights arrive chunk by chunk after.
+        setLoading(false);
 
-        const sentences = pageData.paragraphs.map((p) => p.text);
-        const { difficult } = await api.getDifficulty(sentences);
-        setDifficultWords(new Set(difficult.map((w) => w.toLowerCase())));
+        return streamDifficulty(
+          pageData.paragraphs.map((p) => p.text),
+          { documentId: Number(documentId), pageNumber: currentPage },
+          (words) =>
+            setDifficultWords(
+              (prev) => new Set([...prev, ...words.map((w) => w.toLowerCase())])
+            ),
+          () => cancelled
+        );
       })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (!cancelled) {
+          setError(e.message);
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [documentId, currentPage]);
 
   // Start each page at the top instead of wherever the reader left off scrolling,

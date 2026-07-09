@@ -1,3 +1,5 @@
+import time
+
 from wordfreq import zipf_frequency
 from sqlalchemy.orm import Session
 
@@ -30,10 +32,11 @@ def is_frequent_word(word: str, threshold: float) -> bool:
 
 
 def difficult_words(words: list[str], user: User, db: Session) -> set[str]:
-    if user.use_ml_predictions:
-        result = difficult_words_ml(words, user, db)
-        return result if result is not None else set()
-
+    """
+    CEFR-rule difficulty: a word is difficult if its level is at or above the
+    user's reading level. ML users never reach this function — the /difficulty
+    endpoint routes them to difficult_words_ml instead.
+    """
     if not user.reading_level or user.reading_level not in LEVEL_ORDER:
         return set()
     user_level = LEVEL_ORDER[user.reading_level]
@@ -69,7 +72,7 @@ def difficult_words(words: list[str], user: User, db: Session) -> set[str]:
 
 ML_DIFFICULTY_THRESHOLD = 0.5
 
-_LCP_MODAL = None  # cached handle to the deployed Modal class
+_LCP_MODAL = None  # cached instance handle for the deployed Modal class
 
 
 def _lcp_predictor():
@@ -80,29 +83,35 @@ def _lcp_predictor():
     hold a lightweight remote handle here. Looking it up by name requires the app
     to have been deployed (``modal deploy app/lib/lcp_modal.py``) and Modal
     credentials to be configured on this host.
+
+    The instance is cached, not just the class: instantiating costs a hydration
+    round-trip to Modal, and there is no per-call state to keep separate.
     """
     global _LCP_MODAL
     if _LCP_MODAL is None:
         import modal
 
-        _LCP_MODAL = modal.Cls.from_name(LCP_APP_NAME, "LCPModel")
-    return _LCP_MODAL()
+        _LCP_MODAL = modal.Cls.from_name(LCP_APP_NAME, "LCPModel")()
+    return _LCP_MODAL
+
+
+# The per-annotator model receives the whole history alongside *every* scored
+# token, so history length drives sequence length and therefore GPU time. Left
+# uncapped it grows with every click and slows predictions down forever. Note
+# this is also a modelling decision, not only a performance one: truncating the
+# history changes what the model conditions on.
+HISTORY_MAX_ENTRIES = 40
 
 
 def _get_user_history(user: User, db: Session) -> list[dict]:
-    highlighted_not_clicked = (
-        db.query(HighlightedWord.word)
-        .filter(
-            HighlightedWord.user_id == user.id,
-            HighlightedWord.was_clicked.is_(False),
-        )
-        .all()
-    )
-    clicked = (
-        db.query(ClickedWord.word)
-        .filter(ClickedWord.user_id == user.id)
-        .all()
-    )
+    """
+    Build the user's difficulty history for the model, newest signals first and
+    capped at HISTORY_MAX_ENTRIES.
+
+    Calibration ratings are kept unconditionally: they are explicit ground truth
+    the user gave us, and there are only ever 18 of them. The remaining budget is
+    filled with the most recent behavioural signals, deduplicated by word.
+    """
     # Explicit difficulty ratings from the onboarding calibration sequence.
     # difficulty_rating is 1–5; map it onto the same 0–1 complexity scale.
     calibration = (
@@ -111,14 +120,52 @@ def _get_user_history(user: User, db: Session) -> list[dict]:
         .filter(CalibrationResponse.user_id == user.id)
         .all()
     )
-    return [
-        {"token": row.word, "complexity": 0.25} for row in highlighted_not_clicked
-    ] + [
-        {"token": row.word, "complexity": 0.75} for row in clicked
-    ] + [
+    history = [
         {"token": row.word, "complexity": (row.difficulty_rating - 1) / 4}
         for row in calibration
     ]
+    seen = {entry["token"].lower() for entry in history}
+
+    budget = HISTORY_MAX_ENTRIES - len(history)
+    if budget <= 0:
+        return history
+
+    # A word the user clicked is a stronger difficulty signal (0.75) than one that
+    # was merely highlighted and ignored (0.25). Over-fetch to `budget` from each
+    # source, then interleave by recency and take what fits.
+    clicked = (
+        db.query(ClickedWord.word, ClickedWord.occurred_at)
+        .filter(ClickedWord.user_id == user.id)
+        .order_by(ClickedWord.occurred_at.desc())
+        .limit(budget)
+        .all()
+    )
+    highlighted_not_clicked = (
+        db.query(HighlightedWord.word, HighlightedWord.created_at)
+        .filter(
+            HighlightedWord.user_id == user.id,
+            HighlightedWord.was_clicked.is_(False),
+        )
+        .order_by(HighlightedWord.created_at.desc())
+        .limit(budget)
+        .all()
+    )
+    recent = sorted(
+        [(row.occurred_at, row.word, 0.75) for row in clicked]
+        + [(row.created_at, row.word, 0.25) for row in highlighted_not_clicked],
+        key=lambda entry: entry[0],
+        reverse=True,
+    )
+
+    for _, word, complexity in recent:
+        if len(history) >= HISTORY_MAX_ENTRIES:
+            break
+        if word.lower() in seen:
+            continue
+        seen.add(word.lower())
+        history.append({"token": word, "complexity": complexity})
+
+    return history
 
 
 def difficult_words_ml(
@@ -154,7 +201,14 @@ def difficult_words_ml(
         # The history is the same for every token, so send it once and let the
         # Modal container fan it out (see LCPModel.predict).
         history = _get_user_history(user, db)
+        started = time.perf_counter()
         preds_list = _lcp_predictor().predict.remote(ml_sentences, ml_words, history)
+        # Compare against the container-side "[lcp] predict" line: the difference
+        # is cold start + queueing + network, not model time.
+        print(
+            f"[lcp] remote round-trip {time.perf_counter() - started:.2f}s  "
+            f"gated={len(ml_words)}/{len(tokens)} tokens  history={len(history)}"
+        )
         ml_preds = dict(zip(ml_indices, preds_list))
 
     # the result list contains the prediction for each input token. if there is no ml prediction
