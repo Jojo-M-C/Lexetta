@@ -8,6 +8,7 @@ import { streamDifficulty } from "../../lib/difficultyStream";
 import { usePageReadTimer } from "../../lib/usePageReadTimer";
 import OutageBanner from "../../components/OutageBanner";
 import WordTooltip from "../../components/WordTooltip";
+import PageInput from "../../components/PageInput";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
   "pdfjs-dist/build/pdf.worker.min.mjs",
@@ -283,6 +284,9 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
+      // Don't hijack arrow keys while the user is typing in the page-jump field.
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA") return;
       if (e.key === "ArrowLeft") goToPage(currentPage - 1);
       if (e.key === "ArrowRight") goToPage(currentPage + 1);
       if (e.key === "Escape") setTooltip(null);
@@ -395,9 +399,17 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
 
         <div className="text-xs text-gray-500 uppercase tracking-wide">
           <p className="text-center">Progress</p>
-          <p className="font-semibold text-gray-900 normal-case">
-            Page {currentPage} of {totalPages || "—"}
-          </p>
+          <div className="font-semibold text-gray-900 normal-case">
+            {totalPages > 0 ? (
+              <PageInput
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onJump={goToPage}
+              />
+            ) : (
+              <span>Page — of —</span>
+            )}
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button
