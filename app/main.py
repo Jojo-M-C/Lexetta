@@ -21,6 +21,7 @@ from app.lib.translators.factory import get_translator
 from app.lib.languages import TARGET_LANGUAGES, DEFAULT_LANGUAGE
 from app.lib.sentences import find_sentence, split_sentences_many, map_words_to_sentences
 from app.lib.tokenize import word_tokenize
+from app.lib.token_filter import predictable_tokens
 import csv
 import io
 import os
@@ -100,6 +101,10 @@ def _word_is_difficult(
     rather than failing the lookup.
     """
     if not user.highlighting_enabled:
+        return False
+    # A name/URL/etc. is never highlighted, so a click on one is "not difficult" —
+    # same filter the proactive highlighter uses, applied to the word's sentence.
+    if word.lower() not in {t.lower() for t in predictable_tokens(sentence)}:
         return False
     if not user.use_ml_predictions:
         return word.lower() in difficult_words([word], user, db)
@@ -1211,7 +1216,7 @@ def get_difficulty(
         words: list[str] = []
         for block_sentences in split_sentences_many(payload.texts):
             for sentence in block_sentences:
-                for word in word_tokenize(sentence):
+                for word in predictable_tokens(sentence):
                     if word.lower() in seen:
                         continue
                     seen.add(word.lower())
@@ -1227,7 +1232,7 @@ def get_difficulty(
     else:
         words = []
         for text in payload.texts:
-            for word in word_tokenize(text):
+            for word in predictable_tokens(text):
                 if word.lower() in seen:
                     continue
                 seen.add(word.lower())
