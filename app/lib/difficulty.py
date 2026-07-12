@@ -8,8 +8,8 @@ from app.lib.lemmatize import lemmatize_many
 from app.models import (
     CalibrationItem,
     CalibrationResponse,
-    ClickedWord,
     HighlightedWord,
+    ReadWord,
     User,
     WordCefrLevel,
 )
@@ -144,9 +144,9 @@ def _get_user_history(user: User, db: Session) -> list[dict]:
     # was merely highlighted and ignored (0.25). Over-fetch to `budget` from each
     # source, then interleave by recency and take what fits.
     clicked = (
-        db.query(ClickedWord.word, ClickedWord.occurred_at)
-        .filter(ClickedWord.user_id == user.id)
-        .order_by(ClickedWord.occurred_at.desc())
+        db.query(ReadWord.word, ReadWord.created_at)
+        .filter(ReadWord.user_id == user.id, ReadWord.was_clicked.is_(True))
+        .order_by(ReadWord.created_at.desc())
         .limit(budget)
         .all()
     )
@@ -161,7 +161,7 @@ def _get_user_history(user: User, db: Session) -> list[dict]:
         .all()
     )
     recent = sorted(
-        [(row.occurred_at, row.word, 0.75) for row in clicked]
+        [(row.created_at, row.word, 0.75) for row in clicked]
         + [(row.created_at, row.word, 0.25) for row in highlighted_not_clicked],
         key=lambda entry: entry[0],
         reverse=True,

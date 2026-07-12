@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from "lucide-re
 import { api, type Page } from "../../api";
 import { streamDifficulty } from "../../lib/difficultyStream";
 import { tokenize } from "../../lib/tokenize";
+import { usePageReadTimer } from "../../lib/usePageReadTimer";
 import OutageBanner from "../../components/OutageBanner";
 import Token from "../../components/Token";
 import WordTooltip from "../../components/WordTooltip";
@@ -124,6 +125,17 @@ export default function TxtReader() {
 
   const canGoPrev = currentPage > 1;
   const canGoNext = page ? currentPage < page.total_pages : false;
+
+  // Once the reader has dwelled on this page long enough, commit its words to
+  // read_words as training data.
+  usePageReadTimer({
+    documentId: Number(documentId),
+    pageNumber: currentPage,
+    wordCount: page
+      ? page.paragraphs.reduce((n, p) => n + tokenize(p.text).length, 0)
+      : 0,
+    enabled: !!page,
+  });
 
   const handleWordHover = async (
     word: string,

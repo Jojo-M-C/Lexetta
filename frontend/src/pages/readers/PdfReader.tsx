@@ -5,6 +5,7 @@ import * as pdfjsLib from "pdfjs-dist";
 import type { PDFDocumentProxy, RenderTask } from "pdfjs-dist";
 import { api, type PdfWord } from "../../api";
 import { streamDifficulty } from "../../lib/difficultyStream";
+import { usePageReadTimer } from "../../lib/usePageReadTimer";
 import OutageBanner from "../../components/OutageBanner";
 import WordTooltip from "../../components/WordTooltip";
 
@@ -293,6 +294,17 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
 
   const canGoPrev = currentPage > 1;
   const canGoNext = totalPages > 0 && currentPage < totalPages;
+
+  // Once the reader has dwelled on this page long enough, commit its words to
+  // read_words as training data. PDFs have no paragraph rows server-side, so the
+  // extracted page text is sent along for word enumeration.
+  usePageReadTimer({
+    documentId,
+    pageNumber: currentPage,
+    wordCount: words.length,
+    pageText: pageTextRef.current,
+    enabled: words.length > 0,
+  });
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">

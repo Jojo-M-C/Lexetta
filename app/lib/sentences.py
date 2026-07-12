@@ -38,6 +38,29 @@ def split_sentences_many(texts: list[str]) -> list[list[str]]:
     ]
 
 
+def map_words_to_sentences(text: str, words: list[str]) -> dict[str, str]:
+    """For each word in `words`, return the first sentence of `text` that contains
+    it (letters-only match, like `find_sentence`), falling back to the word itself.
+
+    Segments `text` once and scans it per word, so a whole page's worth of words
+    can be given a sentence context without re-segmenting on every lookup — used by
+    the page-read commit for pdf pages, which have no paragraph rows.
+    """
+    sentences = split_sentences(text)
+    letters_by_sentence = [(s, _letters(s)) for s in sentences]
+    result: dict[str, str] = {}
+    for word in words:
+        target = _letters(word)
+        match = word.strip()
+        if target:
+            for sentence, letters in letters_by_sentence:
+                if target in letters:
+                    match = sentence
+                    break
+        result[word] = match
+    return result
+
+
 def find_sentence(text: str, word: str) -> str:
     """
     Return the sentence within `text` that contains `word`.

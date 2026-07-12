@@ -13,6 +13,7 @@ import { api, type Chapter, type Page } from "../../api";
 import { streamDifficulty } from "../../lib/difficultyStream";
 import OutageBanner from "../../components/OutageBanner";
 import { tokenize } from "../../lib/tokenize";
+import { usePageReadTimer } from "../../lib/usePageReadTimer";
 import Token from "../../components/Token";
 import WordTooltip from "../../components/WordTooltip";
 import PageInput from "../../components/PageInput";
@@ -192,6 +193,17 @@ export default function EpubReader() {
 
   const canGoPrev = currentPage > 1;
   const canGoNext = page ? currentPage < page.total_pages : false;
+
+  // Once the reader has dwelled on this page long enough, commit its words to
+  // read_words as training data.
+  usePageReadTimer({
+    documentId: Number(documentId),
+    pageNumber: currentPage,
+    wordCount: page
+      ? page.paragraphs.reduce((n, p) => n + tokenize(p.text).length, 0)
+      : 0,
+    enabled: !!page,
+  });
 
   const handleWordHover = async (
     word: string,

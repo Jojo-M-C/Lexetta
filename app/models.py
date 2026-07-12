@@ -76,26 +76,48 @@ class EpubImage(Base):
     after_paragraph_index: Mapped[int] = mapped_column(Integer)  # page-local; -1 = top of page
 
 
-class ClickedWord(Base):
-    __tablename__ = "clicked_words"
+class ReadWord(Base):
+    """Verified training data for the difficulty model.
+
+    A row means "this word was on a page the user demonstrably read" (dwell time
+    scaled by word count crossed a threshold), giving trustworthy labels: every
+    read word is either a positive (was_clicked) or a negative (seen, not clicked).
+    Two write paths share the (user, document, page, word) key: a click upserts
+    was_clicked=True, and a page-read commit backfills the rest of the page's words
+    without ever downgrading was_clicked.
+    """
+    __tablename__ = "read_words"
+    __table_args__ = (
+        UniqueConstraint("user_id", "document_id", "page_number", "word", name="uq_read_user_doc_page_word"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), index=True
     )
     document_id: Mapped[int | None] = mapped_column(
-        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True # if the user deleted the document, we can have id of null but still keep the context for training
+        ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True  # keep the context for training even if the document is deleted
     )
-    paragraph_id: Mapped[int] = mapped_column(
+    # Set for txt/epub (which have paragraph rows); NULL for pdf, which has none.
+    paragraph_id: Mapped[int | None] = mapped_column(
         ForeignKey("paragraphs.id", ondelete="SET NULL"), nullable=True
     )
+    page_number: Mapped[int] = mapped_column(Integer)
 
-    word: Mapped[str] = mapped_column(String(128))           # the surface form clicked
-    context: Mapped[str] = mapped_column(Text)               # the sentence/paragraph it was in (snapshot)
-    was_highlighted: Mapped[bool] = mapped_column()          # was the system already showing this as difficult?
-    mode: Mapped[str] = mapped_column(String(16))            # 'translate' or 'explain'
+    word: Mapped[str] = mapped_column(String(128))           # surface form, lowercased (matches highlighted_words)
+    context: Mapped[str] = mapped_column(Text)               # paragraph text (txt/epub) or sentence (pdf) it appeared in
+    was_clicked: Mapped[bool] = mapped_column(default=False, server_default="false")
+    was_highlighted: Mapped[bool] = mapped_column(default=False, server_default="false")
+    # Which prediction system was in effect for this row: "ml" or "cefr". For a
+    # highlighted word it's the model that flagged it; for a read-but-not-highlighted
+    # word it's the model that was active and did not flag it (the ML/CEFR negative).
+    # Nullable only for rows written before this column existed.
+    mode: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    highlighted_word_id: Mapped[int | None] = mapped_column(
+        ForeignKey("highlighted_words.id", ondelete="SET NULL"), nullable=True
+    )
 
-    occurred_at: Mapped[datetime] = mapped_column(server_default=func.now())
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 class WordCefrLevel(Base):
     __tablename__ = "word_cefr_levels"
@@ -119,9 +141,6 @@ class HighlightedWord(Base):
     page_number: Mapped[int] = mapped_column(Integer)
     word: Mapped[str] = mapped_column(String(128))
     context: Mapped[str] = mapped_column(Text)
-    clicked_word_id: Mapped[int | None] = mapped_column(
-        ForeignKey("clicked_words.id", ondelete="SET NULL"), nullable=True
-    )
     mode: Mapped[str] = mapped_column(String(8))  # "ml" or "cefr"
     was_clicked: Mapped[bool] = mapped_column(default=False, server_default="false")
     translation_target: Mapped[str | None] = mapped_column(Text, nullable=True)

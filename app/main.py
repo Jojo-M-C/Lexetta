@@ -1,11 +1,11 @@
 from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import text
+from sqlalchemy import text, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from app.lib.difficulty import MLServiceUnavailable, difficult_words, difficult_words_ml
 from app.database import get_db, SessionLocal
-from app.models import User, Document, Page, Paragraph, Chapter, EpubImage, ClickedWord, HighlightedWord, VocabularyEntry, CalibrationItem, CalibrationResponse
+from app.models import User, Document, Page, Paragraph, Chapter, EpubImage, ReadWord, HighlightedWord, VocabularyEntry, CalibrationItem, CalibrationResponse
 from pydantic import BaseModel
 import random
 import re
@@ -19,7 +19,7 @@ import mimetypes
 import posixpath
 from app.lib.translators.factory import get_translator
 from app.lib.languages import TARGET_LANGUAGES, DEFAULT_LANGUAGE
-from app.lib.sentences import find_sentence, split_sentences_many
+from app.lib.sentences import find_sentence, split_sentences_many, map_words_to_sentences
 from app.lib.tokenize import word_tokenize
 import csv
 import io
@@ -898,18 +898,6 @@ def create_lookup(
         except Exception as e:
             print(f"Translator error: {e}")
 
-    event = ClickedWord(
-        user_id=current_user.id,
-        document_id=document.id,
-        paragraph_id=paragraph.id if paragraph else None,
-        word=payload.word,
-        context=clicked_context,
-        was_highlighted=was_highlighted,
-        mode=mode,
-    )
-    db.add(event)
-    db.flush()  # get event.id before using it below
-
     # A word clicked before its chunk was scored (or on a page the reader left
     # early) still belongs in the highlight log, so the log doesn't depend on how
     # long someone stayed on the page. A /difficulty chunk may be inserting the
@@ -940,10 +928,47 @@ def create_lookup(
 
     if highlighted is not None:
         highlighted.was_clicked = True
-        highlighted.clicked_word_id = event.id
         # Backfill the cache if a live lookup beat the prefetch task to it.
         if highlighted.translation_target is None and translation_text is not None:
             highlighted.translation_target = translation_text
+
+    # Record the click as verified training data. Upsert on (user, doc, page, word):
+    # the page-read commit may already have inserted this word as a negative, or a
+    # later commit may run after this click — either way was_clicked stays True.
+    highlighted_id = highlighted.id if highlighted is not None else None
+    # The model behind this row: the highlight's mode if it was flagged, otherwise
+    # the mode active for this user (which chose not to flag it).
+    read_mode = highlighted.mode if highlighted is not None else mode
+    read_row = None
+    if page_number is not None:
+        read_stmt = (
+            pg_insert(ReadWord)
+            .values(
+                user_id=current_user.id,
+                document_id=document.id,
+                paragraph_id=paragraph.id if paragraph else None,
+                page_number=page_number,
+                word=payload.word.lower(),
+                context=clicked_context,
+                was_clicked=True,
+                was_highlighted=highlighted is not None,
+                highlighted_word_id=highlighted_id,
+                mode=read_mode,
+            )
+            .on_conflict_do_update(
+                constraint="uq_read_user_doc_page_word",
+                set_={
+                    "was_clicked": True,
+                    "was_highlighted": ReadWord.was_highlighted | (highlighted is not None),
+                    "highlighted_word_id": func.coalesce(
+                        ReadWord.highlighted_word_id, highlighted_id
+                    ),
+                    "mode": read_mode,
+                },
+            )
+            .returning(ReadWord.id, ReadWord.created_at)
+        )
+        read_row = db.execute(read_stmt).first()
 
     # Add a vocabulary card. A card is a word in a specific sentence, so dedup on
     # (word, context): the same word in a new sentence is a new card, but an exact
@@ -971,17 +996,123 @@ def create_lookup(
         existing.translation = translation_text
 
     db.commit()
-    db.refresh(event)
 
     return {
-        "id": event.id,
-        "occurred_at": event.occurred_at,
+        "id": read_row.id if read_row else None,
+        "occurred_at": read_row.created_at if read_row else None,
         "word": payload.word,
         "translation": (
             {"target": translation_text, "source": payload.word}
             if translation_text else None
         ),
     }
+
+class PageReadRequest(BaseModel):
+    document_id: int
+    page_number: int
+    # Required for pdf (no paragraph rows exist); ignored for txt/epub, whose text
+    # is read from the stored paragraph rows.
+    page_text: str | None = None
+
+
+@app.post("/pages/read", status_code=201)
+def mark_page_read(
+    payload: PageReadRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Commit a page the reader demonstrably read (dwell time crossed a threshold)
+    into read_words: every word on the page becomes a labelled training example.
+
+    was_highlighted mirrors the highlighted_words log for the page. was_clicked is
+    left to the click path — an existing clicked row is never downgraded, and words
+    not yet present are inserted as negatives (was_clicked=False by default)."""
+    document = db.get(Document, payload.document_id)
+    if not document or document.user_id != current_user.id:
+        raise HTTPException(404, "Document not found")
+
+    # Build (word_lower -> paragraph_id, context) for every distinct word on the
+    # page. txt/epub read from paragraph rows; pdf tokenises the supplied page text.
+    rows: dict[str, tuple[int | None, str]] = {}
+    if document.source_format in ("txt", "epub"):
+        page = (
+            db.query(Page)
+            .filter(Page.document_id == document.id, Page.page_number == payload.page_number)
+            .first()
+        )
+        if not page:
+            raise HTTPException(404, "Page not found")
+        paragraphs = (
+            db.query(Paragraph)
+            .filter(Paragraph.page_id == page.id)
+            .order_by(Paragraph.paragraph_index)
+            .all()
+        )
+        for paragraph in paragraphs:
+            for token in word_tokenize(paragraph.text):
+                key = token.lower()
+                # First occurrence wins: keep its paragraph and paragraph text as context.
+                rows.setdefault(key, (paragraph.id, paragraph.text))
+    else:  # pdf
+        if payload.page_text is None:
+            raise HTTPException(422, "page_text is required for pdf documents")
+        words = list({t.lower() for t in word_tokenize(payload.page_text)})
+        sentences = map_words_to_sentences(payload.page_text, words)
+        for key in words:
+            rows[key] = (None, sentences[key])
+
+    if not rows:
+        return {"counted": 0}
+
+    # What the system highlighted on this page — the source of truth for
+    # was_highlighted, the link target for highlighted_word_id, and the mode of
+    # each positive. word -> (highlight id, highlight mode).
+    highlighted = {
+        row.word: (row.id, row.mode)
+        for row in db.query(HighlightedWord.word, HighlightedWord.id, HighlightedWord.mode).filter(
+            HighlightedWord.user_id == current_user.id,
+            HighlightedWord.document_id == document.id,
+            HighlightedWord.page_number == payload.page_number,
+        )
+    }
+
+    # The mode active for this user, used for words not highlighted on this page
+    # (the model that saw them and did not flag them).
+    active_mode = "ml" if current_user.use_ml_predictions else "cefr"
+
+    values = [
+        {
+            "user_id": current_user.id,
+            "document_id": document.id,
+            "paragraph_id": paragraph_id,
+            "page_number": payload.page_number,
+            "word": word,
+            "context": context,
+            "was_highlighted": word in highlighted,
+            "highlighted_word_id": highlighted[word][0] if word in highlighted else None,
+            "mode": highlighted[word][1] if word in highlighted else active_mode,
+        }
+        for word, (paragraph_id, context) in rows.items()
+    ]
+
+    stmt = pg_insert(ReadWord).values(values)
+    db.execute(
+        stmt.on_conflict_do_update(
+            constraint="uq_read_user_doc_page_word",
+            set_={
+                # was_clicked is deliberately absent: never overwrite a click.
+                "was_highlighted": stmt.excluded.was_highlighted,
+                "highlighted_word_id": stmt.excluded.highlighted_word_id,
+                "context": stmt.excluded.context,
+                "paragraph_id": stmt.excluded.paragraph_id,
+                "mode": stmt.excluded.mode,
+            },
+        )
+    )
+    db.commit()
+
+    return {"counted": len(values)}
+
 
 @app.get("/vocabulary")
 def list_vocabulary(
@@ -1167,7 +1298,7 @@ def delete_document(
 
     # Delete the database row.
     # Cascades: pages, paragraphs (via pages) cascade-delete.
-    # SET NULL: clicked_words.document_id and .paragraph_id become NULL,
+    # SET NULL: read_words.document_id and .paragraph_id become NULL,
     # so the research data persists.
     db.delete(document)
     db.commit()

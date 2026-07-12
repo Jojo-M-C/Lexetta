@@ -245,6 +245,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify(params),
     }),
+  // Commit a page the reader spent enough time on to read_words (training data).
+  // page_text is only needed for pdf (which has no paragraph rows server-side).
+  markPageRead: (params: {
+    document_id: number;
+    page_number: number;
+    page_text?: string;
+  }) =>
+    request<{ counted: number }>("/pages/read", {
+      method: "POST",
+      body: JSON.stringify(params),
+    }),
   listVocabulary: () => request<VocabularyCard[]>("/vocabulary"),
   deleteVocabulary: (id: number) =>
     request<{ id: number; deleted: boolean }>(`/vocabulary/${id}`, {
