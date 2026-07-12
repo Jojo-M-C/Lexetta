@@ -181,8 +181,7 @@ def _get_user_history(user: User, db: Session) -> list[dict]:
 def difficult_words_ml(
     sentences: list[str],
     tokens: list[str],
-    user: User,
-    db: Session,
+    history: list[dict],
 ) -> set[str]:
     """
     ML-based variant of difficult_words. Predicts per-token complexity with the
@@ -190,6 +189,10 @@ def difficult_words_ml(
 
     `sentences` and `tokens` must be parallel: each token is scored in the
     context of the sentence at the same index.
+
+    `history` (from `_get_user_history`) is passed in rather than read here, so the
+    caller can release its database connection before this multi-second remote call.
+    This function touches no database. See notes/multi_user_performance.md §3/§5.
     """
     if len(sentences) != len(tokens):
         raise ValueError(
@@ -210,7 +213,6 @@ def difficult_words_ml(
     if ml_words:
         # The history is the same for every token, so send it once and let the
         # Modal container fan it out (see LCPModel.predict).
-        history = _get_user_history(user, db)
         started = time.perf_counter()
         try:
             # Covers a missing/failed lookup (bad Modal credentials, app not

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
-from app.lib.difficulty import MLServiceUnavailable, difficult_words, difficult_words_ml
+from app.lib.difficulty import MLServiceUnavailable, difficult_words, difficult_words_ml, _get_user_history
 from app.database import get_db, SessionLocal
 from app.models import User, Document, Page, Paragraph, Chapter, EpubImage, ReadWord, HighlightedWord, VocabularyEntry, CalibrationItem, CalibrationResponse
 from pydantic import BaseModel
@@ -109,7 +109,8 @@ def _word_is_difficult(
     if not user.use_ml_predictions:
         return word.lower() in difficult_words([word], user, db)
     try:
-        return word in difficult_words_ml([sentence], [word], user, db)
+        history = _get_user_history(user, db)
+        return word in difficult_words_ml([sentence], [word], history)
     except Exception as e:
         print(f"[lcp] difficulty check failed during lookup: {e}")
         return displayed
@@ -146,6 +147,11 @@ def _store_prefetched_translation(
     if existing and existing.translation_target:
         return  # already cached — no need to call the translator again
 
+    # Return the pooled connection during the blocking OpenAI call — the translate
+    # step needs no database, and the insert below reacquires one. Rolling back is
+    # safe: only the read above is pending. See notes/multi_user_performance.md §3.
+    db.rollback()
+
     translation: str | None = None
     try:
         result = get_translator().translate(word, context=sentence, target_lang=target_language)
@@ -175,52 +181,58 @@ def _store_prefetched_translation(
     db.commit()
 
 
-def _prefetch_translation(paragraph_id: int, word: str, user_id: int, mode: str, target_language: str) -> None:
+def _prefetch_translations(items: list["PrefetchItem"], user_id: int, mode: str, target_language: str) -> None:
+    # One background task per prefetch request (not per word): a single session is
+    # reused for every word, so a page's prefetching holds one connection at a time
+    # instead of one per word. See notes/multi_user_performance.md §3.
     db = SessionLocal()
     try:
-        paragraph = db.get(Paragraph, paragraph_id)
-        if not paragraph:
-            return
-        page = db.get(Page, paragraph.page_id)
-        if not page:
-            return
-        document = db.get(Document, page.document_id)
-        if not document or document.user_id != user_id:
-            return
+        for item in items:
+            try:
+                paragraph = db.get(Paragraph, item.paragraph_id)
+                if not paragraph:
+                    continue
+                page = db.get(Page, paragraph.page_id)
+                if not page:
+                    continue
+                document = db.get(Document, page.document_id)
+                if not document or document.user_id != user_id:
+                    continue
 
-        sentence = find_sentence(paragraph.text, word)
-        _store_prefetched_translation(
-            db, user_id, document.id, page.page_number, word, sentence, mode, target_language
-        )
-    except Exception as e:
-        print(f"Prefetch task error: {e}")
+                sentence = find_sentence(paragraph.text, item.word)
+                _store_prefetched_translation(
+                    db, user_id, document.id, page.page_number, item.word, sentence, mode, target_language
+                )
+            except Exception as e:
+                print(f"Prefetch item error: {e}")
     finally:
         db.close()
 
 
-def _prefetch_translation_pdf(
+def _prefetch_translations_pdf(
     document_id: int,
     page_number: int,
-    word: str,
     page_text: str,
+    words: list[str],
     user_id: int,
     mode: str,
     target_language: str,
 ) -> None:
-    # PDF counterpart to _prefetch_translation: PDFs have no paragraph rows, so
-    # the page text comes from the client (already extracted) rather than the DB.
+    # PDF counterpart to _prefetch_translations: PDFs have no paragraph rows, so the
+    # page text comes from the client (already extracted) rather than the DB.
     db = SessionLocal()
     try:
         document = db.get(Document, document_id)
         if not document or document.user_id != user_id:
             return
-
-        sentence = find_sentence(page_text, word)
-        _store_prefetched_translation(
-            db, user_id, document_id, page_number, word, sentence, mode, target_language
-        )
-    except Exception as e:
-        print(f"PDF prefetch task error: {e}")
+        for word in words:
+            try:
+                sentence = find_sentence(page_text, word)
+                _store_prefetched_translation(
+                    db, user_id, document_id, page_number, word, sentence, mode, target_language
+                )
+            except Exception as e:
+                print(f"PDF prefetch item error: {e}")
     finally:
         db.close()
 
@@ -781,8 +793,7 @@ def prefetch_translations(
 ):
     mode = "ml" if current_user.use_ml_predictions else "cefr"
     target_language = current_user.target_language or DEFAULT_LANGUAGE
-    for item in payload.words:
-        background_tasks.add_task(_prefetch_translation, item.paragraph_id, item.word, current_user.id, mode, target_language)
+    background_tasks.add_task(_prefetch_translations, payload.words, current_user.id, mode, target_language)
     return {"queued": len(payload.words)}
 
 
@@ -800,17 +811,16 @@ def prefetch_pdf_translations(
 ):
     mode = "ml" if current_user.use_ml_predictions else "cefr"
     target_language = current_user.target_language or DEFAULT_LANGUAGE
-    for word in payload.words:
-        background_tasks.add_task(
-            _prefetch_translation_pdf,
-            payload.document_id,
-            payload.page_number,
-            word,
-            payload.page_text,
-            current_user.id,
-            mode,
-            target_language,
-        )
+    background_tasks.add_task(
+        _prefetch_translations_pdf,
+        payload.document_id,
+        payload.page_number,
+        payload.page_text,
+        payload.words,
+        current_user.id,
+        mode,
+        target_language,
+    )
     return {"queued": len(payload.words)}
 
 class LookupCreate(BaseModel):
@@ -1223,7 +1233,13 @@ def get_difficulty(
                     sentences.append(sentence)
                     words.append(word)
         try:
-            difficult = difficult_words_ml(sentences, words, current_user, db)
+            history = _get_user_history(current_user, db)
+            # Release the pooled connection during the multi-second remote GPU call:
+            # nothing below needs the DB until the highlight-persist step, and holding
+            # a connection across the remote call is what saturated the pool under a
+            # few concurrent readers. See notes/multi_user_performance.md §3/§5.
+            db.commit()
+            difficult = difficult_words_ml(sentences, words, history)
         except MLServiceUnavailable as e:
             # No CEFR fallback: the reader shows an outage banner and no highlights,
             # rather than silently mixing rule-based highlights into an ML session.
