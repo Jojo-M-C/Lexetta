@@ -8,7 +8,6 @@ from app.lib.lemmatize import lemmatize_many
 from app.models import (
     CalibrationItem,
     CalibrationResponse,
-    HighlightedWord,
     ReadWord,
     User,
     WordCefrLevel,
@@ -140,9 +139,11 @@ def _get_user_history(user: User, db: Session) -> list[dict]:
     if budget <= 0:
         return history
 
-    # A word the user clicked is a stronger difficulty signal (0.75) than one that
-    # was merely highlighted and ignored (0.25). Over-fetch to `budget` from each
-    # source, then interleave by recency and take what fits.
+    # Both signals come from read_words, so only words on a page the user
+    # demonstrably read count. A word the user clicked is a stronger difficulty
+    # signal (0.75) than one that was highlighted as difficult yet read and ignored
+    # (0.25). Over-fetch to `budget` from each source, then interleave by recency
+    # and take what fits.
     clicked = (
         db.query(ReadWord.word, ReadWord.created_at)
         .filter(ReadWord.user_id == user.id, ReadWord.was_clicked.is_(True))
@@ -151,12 +152,13 @@ def _get_user_history(user: User, db: Session) -> list[dict]:
         .all()
     )
     highlighted_not_clicked = (
-        db.query(HighlightedWord.word, HighlightedWord.created_at)
+        db.query(ReadWord.word, ReadWord.created_at)
         .filter(
-            HighlightedWord.user_id == user.id,
-            HighlightedWord.was_clicked.is_(False),
+            ReadWord.user_id == user.id,
+            ReadWord.was_clicked.is_(False),
+            ReadWord.was_highlighted.is_(True),
         )
-        .order_by(HighlightedWord.created_at.desc())
+        .order_by(ReadWord.created_at.desc())
         .limit(budget)
         .all()
     )
