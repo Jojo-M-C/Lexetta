@@ -24,7 +24,7 @@ export default function Login() {
     const user = users.find((u) => u.id === selectedId);
     if (!user) return;
     login(user);
-    if (!user.target_language) navigate("/language");
+    if (!user.target_language) navigate("/onboarding");
     else if (!user.calibration_done) navigate("/calibration");
     else navigate("/library");
   };

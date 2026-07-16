@@ -8,3 +8,5 @@ uploads/
 .DS_Store
 CLAUDE.md
 notes/
+load_dump.py
+data_dump/

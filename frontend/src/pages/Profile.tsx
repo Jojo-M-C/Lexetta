@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth";
 import { api } from "../api";
+import { READING_LEVELS } from "../lib/levels";
 
 export default function Profile() {
   const { user, logout, updateUser } = useAuth();
@@ -23,6 +24,18 @@ export default function Profile() {
   const handleLogout = () => {
     logout();
     navigate("/login");
+  };
+
+  const handleChangeLevel = async (reading_level: string) => {
+    setSaving(true);
+    try {
+      const updated = await api.updateMe({ reading_level });
+      updateUser({ reading_level: updated.reading_level });
+    } catch (e) {
+      console.error("Failed to update reading level:", e);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleToggleML = async () => {
@@ -64,8 +77,26 @@ export default function Profile() {
             <p className="font-medium">{user?.username}</p>
           </div>
           <div>
-            <label className="text-sm text-gray-500">Reading Level</label>
-            <p className="font-medium">{user?.reading_level ?? "Not set"}</p>
+            <label className="text-sm text-gray-500" htmlFor="reading-level">
+              Reading Level
+            </label>
+            <select
+              id="reading-level"
+              value={user?.reading_level ?? ""}
+              disabled={saving}
+              onChange={(e) => handleChangeLevel(e.target.value)}
+              className="mt-1 block w-56 border border-gray-300 rounded p-2 font-medium disabled:opacity-50"
+            >
+              {!user?.reading_level && <option value="">Not set</option>}
+              {READING_LEVELS.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+            <p className="text-sm text-gray-500 mt-1">
+              Words at or above this level are highlighted.
+            </p>
           </div>
           <div>
             <label className="text-sm text-gray-500">Translation Language</label>

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text, func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
-from app.lib.difficulty import MLServiceUnavailable, difficult_words, difficult_words_ml, _get_user_history
+from app.lib.difficulty import LEVEL_ORDER, MLServiceUnavailable, difficult_words, difficult_words_ml, _get_user_history
 from app.database import get_db, SessionLocal
 from app.models import User, Document, Page, Paragraph, Chapter, EpubImage, ReadWord, HighlightedWord, VocabularyEntry, CalibrationItem, CalibrationResponse
 from pydantic import BaseModel
@@ -284,6 +284,7 @@ def me(current_user: User = Depends(get_current_user)):
 class UserSettingsUpdate(BaseModel):
     use_ml_predictions: bool | None = None
     highlighting_enabled: bool | None = None
+    reading_level: str | None = None
 
 @app.patch("/users/me")
 def update_me(
@@ -295,6 +296,12 @@ def update_me(
         current_user.use_ml_predictions = payload.use_ml_predictions
     if payload.highlighting_enabled is not None:
         current_user.highlighting_enabled = payload.highlighting_enabled
+    if payload.reading_level is not None:
+        # Unlike the target language, the reading level stays editable: a learner
+        # progresses, and the level drives which words get highlighted.
+        if payload.reading_level not in LEVEL_ORDER:
+            raise HTTPException(422, "Unknown reading level")
+        current_user.reading_level = payload.reading_level
     db.commit()
     db.refresh(current_user)
     return current_user

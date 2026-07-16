@@ -160,6 +160,7 @@ export const api = {
   updateMe: (settings: {
     use_ml_predictions?: boolean;
     highlighting_enabled?: boolean;
+    reading_level?: string;
   }) =>
     request<User>("/users/me", {
       method: "PATCH",
