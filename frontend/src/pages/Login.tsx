@@ -50,7 +50,7 @@ export default function Login() {
         >
           {users.map((u) => (
             <option key={u.id} value={u.id}>
-              {u.username} ({u.reading_level ?? "no level"})
+              {u.username}
             </option>
           ))}
         </select>
