@@ -268,6 +268,34 @@ def list_users(db: Session = Depends(get_db)):
     return db.query(User).order_by(User.id).all()
 
 
+class UserCreate(BaseModel):
+    username: str
+
+@app.post("/users", status_code=201)
+def create_user(payload: UserCreate, db: Session = Depends(get_db)):
+    """
+    Create a survey participant. Only guarded by the shared basic_auth password
+    Caddy puts in front of the whole site — enough for a supervised study, where
+    the point is creating an account in one curl while the participant waits.
+
+    The new user starts with no reading_level and no target_language, so they
+    land on onboarding at first login.
+    """
+    username = payload.username.strip()
+    if not username:
+        raise HTTPException(422, "Username must not be empty")
+    if len(username) > 64:  # matches the String(64) column
+        raise HTTPException(422, "Username must be at most 64 characters")
+    # username is UNIQUE; report the clash instead of letting the insert 500.
+    if db.query(User).filter(User.username == username).first():
+        raise HTTPException(409, "Username already taken")
+    user = User(username=username)
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 @app.get("/languages")
 def list_languages():
     # Public: feeds the onboarding language dropdown. Sorted by display name.
