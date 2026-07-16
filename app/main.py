@@ -279,7 +279,9 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)):
     the point is creating an account in one curl while the participant waits.
 
     The new user starts with no reading_level and no target_language, so they
-    land on onboarding at first login.
+    land on onboarding at first login, and with ML predictions on: survey
+    participants are here to exercise the model, unlike the seeded learner_*
+    users (which keep the column's CEFR default).
     """
     username = payload.username.strip()
     if not username:
@@ -289,7 +291,7 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)):
     # username is UNIQUE; report the clash instead of letting the insert 500.
     if db.query(User).filter(User.username == username).first():
         raise HTTPException(409, "Username already taken")
-    user = User(username=username)
+    user = User(username=username, use_ml_predictions=True)
     db.add(user)
     db.commit()
     db.refresh(user)
