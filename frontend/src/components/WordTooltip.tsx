@@ -1,4 +1,11 @@
-import { useFloating, offset, flip, shift, autoUpdate, arrow } from "@floating-ui/react";
+import {
+  useFloating,
+  offset,
+  flip,
+  shift,
+  autoUpdate,
+  arrow,
+} from "@floating-ui/react";
 import { useEffect, useRef } from "react";
 
 // Tooltip metrics at 100% zoom, in px. Everything below is derived from these so
@@ -79,7 +86,11 @@ export default function WordTooltip({
       }}
       className="bg-orange-100 text-gray-900 font-medium shadow-sm z-50 pointer-events-auto"
     >
-      {loading ? <span className="text-gray-500">…</span> : translation ?? "—"}
+      {loading ? (
+        <span className="text-gray-500">…</span>
+      ) : (
+        (translation ?? "—")
+      )}
       <svg
         ref={arrowRef}
         className="absolute fill-orange-100"

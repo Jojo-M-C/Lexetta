@@ -20,6 +20,7 @@ export default function Library() {
   const [loading, setLoading] = useState(true);
   const [docToDelete, setDocToDelete] = useState<Document | null>(null);
   const [docToRename, setDocToRename] = useState<Document | null>(null);
+  const [search, setSearch] = useState("");
 
   const refresh = async () => {
     setLoading(true);
@@ -66,21 +67,42 @@ export default function Library() {
     try {
       const { title: newTitle } = await api.renameDocument(id, title);
       setDocuments((docs) =>
-        docs.map((d) => (d.id === id ? { ...d, title: newTitle } : d))
+        docs.map((d) => (d.id === id ? { ...d, title: newTitle } : d)),
       );
     } catch (err) {
       alert(`Rename failed: ${err instanceof Error ? err.message : err}`);
     }
   };
 
+  // Filtered client-side: the whole library is already loaded, and it is small
+  // enough per user that a round trip per keystroke would buy nothing.
+  const query = search.trim().toLowerCase();
+  const filtered = query
+    ? documents.filter((d) => d.title.toLowerCase().includes(query))
+    : documents;
+
   return (
     <div className="max-w-6xl mx-auto">
       <div className="flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-bold">My Library</h1>
+        <div className="flex items-baseline gap-4">
+          <h1 className="text-3xl font-bold">My Library</h1>
+          <span className="text-sm text-gray-500">
+            {documents.length} {documents.length === 1 ? "document" : "documents"}
+          </span>
+        </div>
         <div className="w-48">
           <UploadButton onUploaded={refresh} />
         </div>
       </div>
+
+      <input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search documents..."
+        aria-label="Search documents by title"
+        className="w-full mb-6 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+      />
 
       {loading ? (
         <p className="text-gray-500">Loading...</p>
@@ -90,59 +112,66 @@ export default function Library() {
             No documents yet. Upload a .txt, .pdf, or .epub file to get started.
           </p>
         </div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-white rounded-lg shadow p-6">
+          <p className="text-gray-500">No documents match "{search.trim()}".</p>
+        </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {documents.map((doc) => {
+          {filtered.map((doc) => {
             const progress = readingProgress(doc);
             // last_page_read is 0 for a document that was never opened, so clamp:
             // a first open starts at page 1, not a nonexistent page 0.
             const openAtPage = Math.max(1, doc.last_page_read);
             return (
-            <div key={doc.id} className="relative group">
-              <Link
-                to={`/reader/${doc.id}?page=${openAtPage}`}
-                className="bg-white rounded-lg shadow p-4 hover:shadow-md transition cursor-pointer block"
-              >
-                <h3 className="font-bold text-lg pr-16 truncate" title={doc.title}>
-                  {doc.title}
-                </h3>
-                <p className="text-xs text-gray-500 mt-1">
-                  {doc.source_format.toUpperCase()} ·{" "}
-                  {new Date(doc.uploaded_at).toLocaleDateString()}
-                </p>
-                {progress !== null && (
-                  <div className="flex items-center gap-2 mt-4">
-                    <div className="flex-1 bg-gray-100 rounded-full h-1.5">
-                      <div
-                        className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
-                        style={{ width: `${progress}%` }}
-                      />
+              <div key={doc.id} className="relative group">
+                <Link
+                  to={`/reader/${doc.id}?page=${openAtPage}`}
+                  className="bg-white rounded-lg shadow p-4 hover:shadow-md transition cursor-pointer block"
+                >
+                  <h3
+                    className="font-bold text-lg pr-16 truncate"
+                    title={doc.title}
+                  >
+                    {doc.title}
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {doc.source_format.toUpperCase()} ·{" "}
+                    {new Date(doc.uploaded_at).toLocaleDateString()}
+                  </p>
+                  {progress !== null && (
+                    <div className="flex items-center gap-2 mt-4">
+                      <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                        <div
+                          className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <span className="text-xs text-gray-500 tabular-nums">
+                        {progress}%
+                      </span>
                     </div>
-                    <span className="text-xs text-gray-500 tabular-nums">
-                      {progress}%
-                    </span>
-                  </div>
-                )}
-              </Link>
-              <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                <button
-                  onClick={(e) => requestRename(e, doc)}
-                  className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md"
-                  aria-label={`Rename ${doc.title}`}
-                  title="Rename document"
-                >
-                  <Pencil size={16} />
-                </button>
-                <button
-                  onClick={(e) => requestDelete(e, doc)}
-                  className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md"
-                  aria-label={`Delete ${doc.title}`}
-                  title="Delete document"
-                >
-                  <Trash2 size={16} />
-                </button>
+                  )}
+                </Link>
+                <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                  <button
+                    onClick={(e) => requestRename(e, doc)}
+                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-md"
+                    aria-label={`Rename ${doc.title}`}
+                    title="Rename document"
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button
+                    onClick={(e) => requestDelete(e, doc)}
+                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-md"
+                    aria-label={`Delete ${doc.title}`}
+                    title="Delete document"
+                  >
+                    <Trash2 size={16} />
+                  </button>
+                </div>
               </div>
-            </div>
             );
           })}
         </div>
