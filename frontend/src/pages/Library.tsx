@@ -6,6 +6,15 @@ import RenameDialog from "../components/RenameDialog";
 import { Link } from "react-router-dom";
 import { Pencil, Trash2 } from "lucide-react";
 
+// How far through a document the reader has got, as a whole percent. The current
+// page counts as read, so the last page reads 100%; a document that has never
+// been opened sits at last_page_read 0 and so reads 0%.
+function readingProgress(doc: Document): number | null {
+  if (!doc.page_count) return null;
+  const pct = (doc.last_page_read / doc.page_count) * 100;
+  return Math.min(100, Math.max(0, Math.round(pct)));
+}
+
 export default function Library() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,10 +92,15 @@ export default function Library() {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {documents.map((doc) => (
+          {documents.map((doc) => {
+            const progress = readingProgress(doc);
+            // last_page_read is 0 for a document that was never opened, so clamp:
+            // a first open starts at page 1, not a nonexistent page 0.
+            const openAtPage = Math.max(1, doc.last_page_read);
+            return (
             <div key={doc.id} className="relative group">
               <Link
-                to={`/reader/${doc.id}?page=${doc.last_page_read}`}
+                to={`/reader/${doc.id}?page=${openAtPage}`}
                 className="bg-white rounded-lg shadow p-4 hover:shadow-md transition cursor-pointer block"
               >
                 <h3 className="font-bold text-lg pr-16 truncate" title={doc.title}>
@@ -96,6 +110,19 @@ export default function Library() {
                   {doc.source_format.toUpperCase()} ·{" "}
                   {new Date(doc.uploaded_at).toLocaleDateString()}
                 </p>
+                {progress !== null && (
+                  <div className="flex items-center gap-2 mt-4">
+                    <div className="flex-1 bg-gray-100 rounded-full h-1.5">
+                      <div
+                        className="bg-blue-600 h-1.5 rounded-full transition-all duration-300"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-gray-500 tabular-nums">
+                      {progress}%
+                    </span>
+                  </div>
+                )}
               </Link>
               <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition">
                 <button
@@ -116,7 +143,8 @@ export default function Library() {
                 </button>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

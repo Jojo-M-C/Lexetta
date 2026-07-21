@@ -27,7 +27,14 @@ class Document(Base):
     source_format: Mapped[str] = mapped_column(String(8))  # 'txt', 'epub', 'pdf'
     original_filename: Mapped[str] = mapped_column(String(255))
     file_path: Mapped[str] = mapped_column(Text)
-    last_page_read: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # 0 means never opened: both readers set this to the page number as soon as
+    # they fetch a page, so it only leaves 0 once the document is actually opened.
+    # That keeps "never opened" (0%) distinct from "opened on page 1".
+    last_page_read: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    # Total pages, recorded at upload. Stored rather than derived because PDFs have
+    # no page rows to count, and the library needs it per document to show reading
+    # progress. Nullable only for rows predating this column.
+    page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Null for participant uploads; the CEFR level (A1–C2) for a text assigned at
     # onboarding. Marks study texts and records which level's text it is, so the
     # assignment stays idempotent and read_words can be joined back to the source.

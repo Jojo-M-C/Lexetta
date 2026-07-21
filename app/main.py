@@ -266,6 +266,7 @@ def _ingest_txt_document(
         original_filename=f"{title}.txt",
         file_path=str(file_path),
         study_level=study_level,
+        page_count=len(pages_data),
     )
     db.add(document)
     db.flush()  # assigns document.id without committing
@@ -506,10 +507,13 @@ async def upload_document(
         except UnicodeDecodeError:
             raise HTTPException(400, "File is not valid UTF-8 text")
         document = _ingest_txt_document(db, current_user, title, raw)
-        page_count = db.query(Page).filter(Page.document_id == document.id).count()
         db.commit()
         db.refresh(document)
-        return {"id": document.id, "title": document.title, "page_count": page_count}
+        return {
+            "id": document.id,
+            "title": document.title,
+            "page_count": document.page_count,
+        }
 
     # Parse/validate content before touching the disk so a bad file leaves nothing
     # behind. pdf: confirm it opens and has pages. epub: extract chapters →
@@ -596,6 +600,7 @@ async def upload_document(
     else:
         page_count = pdf_page_count
 
+    document.page_count = page_count
     db.commit()
     db.refresh(document)
 
@@ -624,6 +629,7 @@ def list_documents(
             "source_format": d.source_format,
             "uploaded_at": d.uploaded_at,
             "last_page_read": d.last_page_read,
+            "page_count": d.page_count,
         }
         for d in docs
     ]

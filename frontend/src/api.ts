@@ -93,6 +93,9 @@ export interface Document {
   source_format: string;
   uploaded_at: string;
   last_page_read: number;
+  // Null for documents uploaded before page counts were recorded; the library
+  // shows no progress bar for those rather than guessing.
+  page_count: number | null;
 }
 
 export interface PageImage {
