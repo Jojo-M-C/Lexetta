@@ -236,6 +236,50 @@ def _prefetch_translations_pdf(
     finally:
         db.close()
 
+def _ingest_txt_document(
+    db: Session,
+    user: User,
+    title: str,
+    raw: bytes,
+    study_level: str | None = None,
+) -> Document:
+    """Turn plain-text bytes into a Document plus its page/paragraph rows.
+
+    Shared by the upload endpoint and study-text assignment. Writes a UUID-named
+    copy to upload_dir so every Document owns its own file on disk — deletion
+    unlinks file_path, so assigned texts must not share the master's path. The
+    caller is responsible for db.commit(); this only flushes.
+    """
+    pages_data = parse_txt(raw.decode("utf-8"))
+    if not pages_data:
+        raise HTTPException(400, "File appears to be empty")
+
+    upload_dir = Path(settings.upload_dir)
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    file_path = upload_dir / f"{uuid.uuid4()}.txt"
+    file_path.write_bytes(raw)
+
+    document = Document(
+        user_id=user.id,
+        title=title,
+        source_format="txt",
+        original_filename=f"{title}.txt",
+        file_path=str(file_path),
+        study_level=study_level,
+    )
+    db.add(document)
+    db.flush()  # assigns document.id without committing
+
+    for page_idx, paragraphs in enumerate(pages_data, start=1):
+        page = Page(document_id=document.id, page_number=page_idx)
+        db.add(page)
+        db.flush()
+        for para_idx, para_text in enumerate(paragraphs):
+            db.add(Paragraph(page_id=page.id, paragraph_index=para_idx, text=para_text))
+
+    return document
+
+
 app = FastAPI(title="Lexetta")
 
 app.add_middleware(
@@ -393,6 +437,44 @@ def submit_calibration(
     return {"calibration_done": True}
 
 
+@app.post("/study/assign", status_code=201)
+def assign_study_text(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Give the participant their own copy of the level-matched study text.
+
+    Idempotent on (user, reading_level): a repeat call returns the existing copy
+    rather than making a second one. Keyed on the level, not "any document", so a
+    participant who later uploads their own file doesn't block assignment, and so
+    editing the level in the profile never silently swaps the text mid-study
+    (only re-running this endpoint would, and it only ever adds).
+    """
+    level = current_user.reading_level
+    if not level:
+        raise HTTPException(409, "No reading level set")
+
+    existing = (
+        db.query(Document)
+        .filter(Document.user_id == current_user.id, Document.study_level == level)
+        .first()
+    )
+    if existing:
+        return {"id": existing.id, "title": existing.title, "already_assigned": True}
+
+    path = Path(settings.study_texts_dir) / f"{level}.txt"
+    if not path.exists():
+        raise HTTPException(500, f"No study text configured for level {level}")
+    raw = path.read_bytes()
+
+    document = _ingest_txt_document(
+        db, current_user, f"Study text ({level})", raw, study_level=level
+    )
+    db.commit()
+    db.refresh(document)
+    return {"id": document.id, "title": document.title, "already_assigned": False}
+
+
 @app.post("/documents")
 async def upload_document(
     file: UploadFile = File(...),
@@ -413,20 +495,27 @@ async def upload_document(
     if len(raw) > max_mb * 1024 * 1024:
         raise HTTPException(400, f"File too large (max {max_mb} MB)")
 
-    # Parse/validate content before touching the disk so a bad file leaves nothing
-    # behind. txt: split into pages/paragraphs. pdf: confirm it opens and has pages.
-    # epub: extract chapters → pages/paragraphs/images.
-    pages_data: list[list[str]] | None = None
-    epub_chapters: list[EpubChapter] | None = None
+    # Title = filename without extension
+    title = file.filename.rsplit(".", 1)[0]
+
+    # txt shares its whole ingest path with study-text assignment, so it goes
+    # through the helper and returns early. epub/pdf keep the generic path below.
     if ext == "txt":
         try:
-            text = raw.decode("utf-8")
+            raw.decode("utf-8")
         except UnicodeDecodeError:
             raise HTTPException(400, "File is not valid UTF-8 text")
-        pages_data = parse_txt(text)
-        if not pages_data:
-            raise HTTPException(400, "File appears to be empty")
-    elif ext == "epub":
+        document = _ingest_txt_document(db, current_user, title, raw)
+        page_count = db.query(Page).filter(Page.document_id == document.id).count()
+        db.commit()
+        db.refresh(document)
+        return {"id": document.id, "title": document.title, "page_count": page_count}
+
+    # Parse/validate content before touching the disk so a bad file leaves nothing
+    # behind. pdf: confirm it opens and has pages. epub: extract chapters →
+    # pages/paragraphs/images.
+    epub_chapters: list[EpubChapter] | None = None
+    if ext == "epub":
         # EPUB is a ZIP archive (magic bytes "PK\x03\x04").
         if not raw.startswith(b"PK\x03\x04"):
             raise HTTPException(400, "File is not a valid EPUB")
@@ -454,9 +543,6 @@ async def upload_document(
     file_path = upload_dir / stored_filename
     file_path.write_bytes(raw)
 
-    # Title = filename without extension
-    title = file.filename.rsplit(".", 1)[0]
-
     document = Document(
         user_id=current_user.id,
         title=title,
@@ -467,24 +553,10 @@ async def upload_document(
     db.add(document)
     db.flush()  # assigns document.id without committing
 
-    # txt documents are stored as page/paragraph rows for the HTML reader. PDFs
-    # are rendered directly by the frontend (PDF.js + on-demand word boxes), so
-    # they need no structural rows. EPUBs add chapter rows and positioned images.
+    # PDFs are rendered directly by the frontend (PDF.js + on-demand word boxes),
+    # so they need no structural rows. EPUBs add chapter rows and positioned images.
     page_count = 0
-    if pages_data is not None:
-        for page_idx, paragraphs in enumerate(pages_data, start=1):
-            page = Page(document_id=document.id, page_number=page_idx)
-            db.add(page)
-            db.flush()
-
-            for para_idx, para_text in enumerate(paragraphs):
-                db.add(Paragraph(
-                    page_id=page.id,
-                    paragraph_index=para_idx,
-                    text=para_text,
-                ))
-        page_count = len(pages_data)
-    elif epub_chapters is not None:
+    if epub_chapters is not None:
         # Pages are numbered globally across chapters so the reader's flat
         # pagination still works; each page also links to its chapter for the TOC.
         page_number = 0

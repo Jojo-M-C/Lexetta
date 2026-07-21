@@ -293,6 +293,13 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ title }),
     }),
+  // Assign the participant the level-matched study text. Idempotent: safe to
+  // retry, returns the existing copy if one was already created.
+  assignStudyText: () =>
+    request<{ id: number; title: string; already_assigned: boolean }>(
+      "/study/assign",
+      { method: "POST" }
+    ),
   getCalibrationWords: () => request<CalibrationItem[]>("/calibration/words"),
   submitCalibration: (ratings: { item_id: number; difficulty_rating: number }[]) =>
     request<{ calibration_done: boolean }>("/calibration", {

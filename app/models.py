@@ -28,6 +28,10 @@ class Document(Base):
     original_filename: Mapped[str] = mapped_column(String(255))
     file_path: Mapped[str] = mapped_column(Text)
     last_page_read: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    # Null for participant uploads; the CEFR level (A1–C2) for a text assigned at
+    # onboarding. Marks study texts and records which level's text it is, so the
+    # assignment stays idempotent and read_words can be joined back to the source.
+    study_level: Mapped[str | None] = mapped_column(String(2), nullable=True)
     uploaded_at: Mapped[datetime] = mapped_column(server_default=func.now())
 
 class Chapter(Base):

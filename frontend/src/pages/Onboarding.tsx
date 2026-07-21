@@ -29,9 +29,12 @@ export default function Onboarding() {
     setError(null);
     try {
       // Level first: it's idempotent, whereas setting the language flips the gate
-      // above. If the second call fails the user lands back here and can retry.
+      // above. If a later call fails the user lands back here and can retry.
       const withLevel = await api.updateMe({ reading_level: level });
       updateUser({ reading_level: withLevel.reading_level });
+      // Assign the level-matched study text before the language flips the gate,
+      // so a failure here leaves the user on onboarding to retry. Idempotent.
+      await api.assignStudyText();
       const withLanguage = await api.setLanguage(language);
       updateUser({ target_language: withLanguage.target_language });
       navigate("/calibration");
