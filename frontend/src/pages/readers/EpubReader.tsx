@@ -421,6 +421,7 @@ export default function EpubReader() {
           loading={translationLoading}
           anchor={activeAnchor}
           onClose={closeTooltip}
+          zoom={zoom}
         />
       )}
     </div>

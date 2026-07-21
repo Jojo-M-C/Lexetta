@@ -435,6 +435,7 @@ export default function PdfReader({ documentId, initialPage = 1 }: PdfReaderProp
           loading={tooltip.loading}
           anchor={tooltip.anchor}
           onClose={() => setTooltip(null)}
+          zoom={zoom}
         />
       )}
     </div>

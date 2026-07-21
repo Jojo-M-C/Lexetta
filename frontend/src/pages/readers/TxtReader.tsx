@@ -274,6 +274,7 @@ export default function TxtReader() {
           loading={translationLoading}
           anchor={activeAnchor}
           onClose={closeTooltip}
+          zoom={zoom}
         />
       )}
     </div>
