@@ -280,7 +280,7 @@ export const api = {
         const downloadUrl = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = downloadUrl;
-        a.download = `lexetta_vocab_${new Date().toISOString().slice(0, 10)}.tsv`;
+        a.download = `fluidread_vocab_${new Date().toISOString().slice(0, 10)}.tsv`;
         document.body.appendChild(a);
         a.click();
         a.remove();

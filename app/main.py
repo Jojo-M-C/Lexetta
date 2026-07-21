@@ -281,7 +281,7 @@ def _ingest_txt_document(
     return document
 
 
-app = FastAPI(title="Lexetta")
+app = FastAPI(title="FluidRead")
 
 app.add_middleware(
     CORSMiddleware,
@@ -1409,7 +1409,7 @@ def export_vocabulary(
 
     output.seek(0)
     today = date.today().isoformat()
-    filename = f"lexetta_vocab_{today}.tsv"
+    filename = f"fluidread_vocab_{today}.tsv"
 
     return StreamingResponse(
         iter([output.getvalue()]),

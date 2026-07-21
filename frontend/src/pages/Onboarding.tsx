@@ -47,7 +47,7 @@ export default function Onboarding() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="bg-white rounded-lg shadow p-8 w-full max-w-lg">
-        <h1 className="text-xl font-bold text-gray-900 mb-1">Welcome to Lexetta</h1>
+        <h1 className="text-xl font-bold text-gray-900 mb-1">Welcome to FluidRead</h1>
         <p className="text-sm text-gray-500 mb-6">
           Set these up before your calibration.
         </p>

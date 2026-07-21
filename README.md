@@ -25,7 +25,6 @@ This is a Bachelor's thesis project by Johanna Christoph @ Informatics TU Wien.
 - [Running a user study](#running-a-user-study)
 - [Deployment](#deployment)
 - [Repository layout](#repository-layout)
-- [Design decisions](#design-decisions)
 - [Limitations and future work](#limitations-and-future-work)
 
 ---
